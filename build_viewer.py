@@ -1,13 +1,66 @@
 #!/usr/bin/env python3
 """
-Build viewer.html — embeds JSZip, Leaflet, and all viewer logic into a single self-contained file.
+Build viewer.html + sw.js — embeds JSZip, Leaflet, and all viewer logic into a single self-contained file.
 Run:  python3 build_viewer.py
 """
 import os, sys
+from datetime import datetime, timezone
 
 JSZIP_PATH       = "/tmp/jszip.min.js"
 LEAFLET_JS_PATH  = "/tmp/leaflet.js"
 LEAFLET_CSS_PATH = "/tmp/leaflet.css"
+
+def build_sw(build_ts):
+    return f"""// RouteBook service worker — auto-generated, do not edit
+const VERSION = '{build_ts}';
+const CACHE   = 'routebook-' + VERSION;
+
+self.addEventListener('install', function(e) {{
+  e.waitUntil(
+    caches.open(CACHE).then(function(c) {{
+      return c.addAll(['./viewer.html', './sw.js']);
+    }}).then(function() {{ return self.skipWaiting(); }})
+  );
+}});
+
+self.addEventListener('activate', function(e) {{
+  e.waitUntil(
+    caches.keys().then(function(keys) {{
+      return Promise.all(
+        keys.filter(function(k) {{ return k !== CACHE; }})
+            .map(function(k) {{ return caches.delete(k); }})
+      );
+    }}).then(function() {{ return self.clients.claim(); }})
+    .then(function() {{
+      // Notify all open tabs that a new version is available
+      self.clients.matchAll({{ type: 'window' }}).then(function(clients) {{
+        clients.forEach(function(c) {{ c.postMessage({{ type: 'UPDATE_AVAILABLE', version: VERSION }}); }});
+      }});
+    }})
+  );
+}});
+
+self.addEventListener('fetch', function(e) {{
+  // Network-first for viewer.html and sw.js so updates are always picked up
+  if (e.request.url.endsWith('viewer.html') || e.request.url.endsWith('sw.js')) {{
+    e.respondWith(
+      fetch(e.request).then(function(resp) {{
+        return caches.open(CACHE).then(function(c) {{
+          c.put(e.request, resp.clone());
+          return resp;
+        }});
+      }}).catch(function() {{ return caches.match(e.request); }})
+    );
+    return;
+  }}
+  // Cache-first for everything else (tiles etc)
+  e.respondWith(
+    caches.match(e.request).then(function(r) {{
+      return r || fetch(e.request);
+    }})
+  );
+}});
+"""
 
 def main():
     missing = []
@@ -28,25 +81,38 @@ def main():
     with open(LEAFLET_JS_PATH,  encoding="utf-8") as f: leaflet_js  = f.read()
     with open(LEAFLET_CSS_PATH, encoding="utf-8") as f: leaflet_css = f.read()
 
-    html = build_viewer(jszip, leaflet_js, leaflet_css)
+    build_ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+
+    html = build_viewer(jszip, leaflet_js, leaflet_css, build_ts)
     out = "viewer.html"
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"viewer.html written ({len(html)//1024} KB)")
 
-def build_viewer(jszip, leaflet_js, leaflet_css):
+    sw = build_sw(build_ts)
+    with open("sw.js", "w", encoding="utf-8") as f:
+        f.write(sw)
+    print(f"sw.js written (version {build_ts})")
+
+def build_viewer(jszip, leaflet_js, leaflet_css, build_ts):
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>JumRouteBook Viewer</title>
+<meta name="app-version" content="{build_ts}">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RouteBook">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2b6cb0">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%232b6cb0'/%3E%3Ctext x='90' y='125' font-size='96' text-anchor='middle'%3E%F0%9F%9A%B4%3C/text%3E%3C/svg%3E">
+<script>
+if ('serviceWorker' in navigator) {{
+  navigator.serviceWorker.register('./sw.js').catch(function(){{}});
+}}
+</script>
 <style>
 {leaflet_css}
 </style>
@@ -570,6 +636,15 @@ h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700;
 
 # ─────────────────────────────────────────────────────────────────────────────
 VIEWER_JS = """
+// ── Service worker update notification ──────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'UPDATE_AVAILABLE') {
+      showToast('App updated to ' + e.data.version.replace(/^(\\d{4})(\\d{2})(\\d{2})(\\d{2})(\\d{2})(\\d{2})$/, '$1-$2-$3 $4:$5') + ' ✓');
+    }
+  });
+}
+
 // ── IndexedDB storage ──────────────────────────────────────────────────────
 const DB_NAME = 'jumroutebook-store';
 const DB_VER  = 1;
