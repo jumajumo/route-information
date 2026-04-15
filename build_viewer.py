@@ -202,6 +202,9 @@ if ('serviceWorker' in navigator) {{
 <!-- Toast -->
 <div id="toast"></div>
 
+<!-- Update banner -->
+<div id="update-banner"></div>
+
 <!-- Elevation tooltip -->
 <div id="elev-tooltip"></div>
 
@@ -625,6 +628,15 @@ h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700;
 }
 #toast.show { opacity: 1; }
 
+/* ── Update banner ── */
+#update-banner {
+  display: none; position: fixed; top: 0; left: 0; right: 0; z-index: 700;
+  background: #2b6cb0; color: white; text-align: center;
+  padding: .7rem 1rem; font-size: .9rem; cursor: pointer;
+  padding-top: max(.7rem, calc(.5rem + env(safe-area-inset-top)));
+}
+#toast.show { opacity: 1; }
+
 /* ── Elevation canvas ── */
 .elev-canvas {
   width: 100%; height: 100%; min-height: 220px; display: block;
@@ -651,7 +663,10 @@ if ('serviceWorker' in navigator) {
     if (e.data && e.data.type === 'UPDATE_AVAILABLE') {
       var v = e.data.version, d = new Date(Date.UTC(+v.slice(0,4),+v.slice(4,6)-1,+v.slice(6,8),+v.slice(8,10),+v.slice(10,12),+v.slice(12,14)));
       var ts = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
-      showToast('App updated to ' + ts + ' ✓');
+      var banner = document.getElementById('update-banner');
+      banner.textContent = '🔄 Update available (' + ts + ') — tap to reload';
+      banner.style.display = 'block';
+      banner.onclick = function() { window.location.reload(); };
     }
   });
 }
