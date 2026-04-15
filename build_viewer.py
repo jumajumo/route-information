@@ -1288,7 +1288,8 @@ function attachElevationHover(canvas, globalMinE, globalMaxE) {
     const W = canvas.offsetWidth, H = canvas.offsetHeight;
     const dpr = window.devicePixelRatio || 1;
     const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
+    // drawElevation already set canvas.width/height and called ctx.scale(dpr,dpr)
+    // so coordinates here are in CSS pixels (the scale is already applied)
     const eRange = canvas._maxE - canvas._minE || 1;
     const xPos = pad.l + (best.d / maxD) * (W - pad.l - canvas._pad.r);
     const yPos = pad.t + (1 - (best.e - canvas._minE) / eRange) * (H - pad.t - pad.b);
