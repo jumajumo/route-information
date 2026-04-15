@@ -73,6 +73,59 @@ POI_ICON = {
     'spring': '💧', 'wayside_cross': '✝️',
 }
 
+# ---------------------------------------------------------------------------
+# Surface / road type classification
+# ---------------------------------------------------------------------------
+
+SURFACE_MAP = {
+    'asphalt': 'asphalt', 'paved': 'asphalt', 'concrete': 'asphalt',
+    'concrete:plates': 'asphalt', 'concrete:lanes': 'asphalt',
+    'paving_stones': 'asphalt', 'cobblestone': 'gravel', 'sett': 'gravel',
+    'gravel': 'gravel', 'fine_gravel': 'gravel', 'pebblestone': 'gravel',
+    'compacted': 'gravel', 'dirt': 'unpaved', 'earth': 'unpaved',
+    'ground': 'unpaved', 'mud': 'unpaved', 'sand': 'unpaved',
+    'grass': 'unpaved', 'wood': 'unpaved',
+}
+
+HIGHWAY_ROAD_MAP = {
+    'cycleway': 'cycleway', 'path': 'path', 'footway': 'path', 'track': 'path',
+    'residential': 'minor_road', 'living_street': 'minor_road',
+    'service': 'minor_road', 'unclassified': 'minor_road',
+    'tertiary': 'minor_road', 'tertiary_link': 'minor_road',
+    'secondary': 'main_road', 'secondary_link': 'main_road',
+    'primary': 'main_road', 'primary_link': 'main_road',
+    'trunk': 'main_road', 'trunk_link': 'main_road',
+}
+
+HIGHWAY_SURFACE_INFER = {
+    'cycleway': 'asphalt', 'residential': 'asphalt', 'living_street': 'asphalt',
+    'unclassified': 'asphalt', 'tertiary': 'asphalt', 'tertiary_link': 'asphalt',
+    'secondary': 'asphalt', 'secondary_link': 'asphalt',
+    'primary': 'asphalt', 'trunk': 'asphalt', 'track': 'gravel',
+}
+
+SURFACE_COLOR = {
+    'asphalt': '#48bb78',   # green
+    'gravel':  '#ed8936',   # orange
+    'unpaved': '#e53e3e',   # red
+    'unknown': '#a0aec0',   # grey
+}
+
+def classify_surface(tags):
+    if not tags:
+        return 'unknown'
+    s = tags.get('surface', '').lower()
+    if s in SURFACE_MAP:
+        return SURFACE_MAP[s]
+    hw = tags.get('highway', '').lower()
+    return HIGHWAY_SURFACE_INFER.get(hw, 'unknown')
+
+def classify_road_type(tags):
+    if not tags:
+        return 'unknown'
+    hw = tags.get('highway', '').lower()
+    return HIGHWAY_ROAD_MAP.get(hw, 'unknown')
+
 
 # ---------------------------------------------------------------------------
 # Disk cache
@@ -81,9 +134,10 @@ POI_ICON = {
 _cache_dir = None
 _nominatim_cache = {}
 _overpass_cache = {}
+_surface_cache = {}
 
 def init_cache(output_dir):
-    global _cache_dir, _nominatim_cache, _overpass_cache, _photo_embed_cache
+    global _cache_dir, _nominatim_cache, _overpass_cache, _surface_cache, _photo_embed_cache
     _cache_dir = os.path.join(output_dir, ".cache")
     os.makedirs(_cache_dir, exist_ok=True)
 
@@ -98,6 +152,12 @@ def init_cache(output_dir):
         with open(ovp_path, encoding="utf-8") as f:
             _overpass_cache = json.load(f)
         print(f"  Loaded {len(_overpass_cache)} cached Overpass entries")
+
+    surf_path = os.path.join(_cache_dir, "surface.json")
+    if os.path.exists(surf_path):
+        with open(surf_path, encoding="utf-8") as f:
+            _surface_cache = json.load(f)
+        print(f"  Loaded {len(_surface_cache)} cached surface entries")
 
     kv_path = os.path.join(_cache_dir, "kartaview.json")
     if os.path.exists(kv_path):
@@ -128,6 +188,12 @@ def _save_overpass_cache():
         return
     with open(os.path.join(_cache_dir, "overpass.json"), "w", encoding="utf-8") as f:
         json.dump(_overpass_cache, f, ensure_ascii=False)
+
+def _save_surface_cache():
+    if _cache_dir is None:
+        return
+    with open(os.path.join(_cache_dir, "surface.json"), "w", encoding="utf-8") as f:
+        json.dump(_surface_cache, f, ensure_ascii=False)
 
 _kartaview_cache = {}
 _photo_embed_cache = {}  # url -> "data:image/jpeg;base64,..."
@@ -630,8 +696,90 @@ def fetch_pois(sec_points, sec_dists, corridor_m=150):
 
 
 # ---------------------------------------------------------------------------
-# Section splitting — snapped to named places
+# Surface / road type data — Overpass way query + point snapping
 # ---------------------------------------------------------------------------
+
+def _point_to_segment_dist_sq(px, py, ax, ay, bx, by):
+    """Squared distance from point (px,py) to segment (ax,ay)-(bx,by). Cartesian approx."""
+    dx, dy = bx - ax, by - ay
+    if dx == 0.0 and dy == 0.0:
+        return (px - ax) ** 2 + (py - ay) ** 2
+    t = max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)))
+    return (px - ax - t * dx) ** 2 + (py - ay - t * dy) ** 2
+
+
+def snap_points_to_ways(sec_points, ways, max_snap_m=50):
+    """
+    For each track point, find the nearest OSM way segment and return its tags.
+    Returns a list of tag dicts (one per point; empty dict if no way within max_snap_m).
+    """
+    # Pre-build segment list for speed: list of (tags, ax, ay, bx, by)
+    segments = []
+    for way in ways:
+        geom = way.get("geometry", [])
+        tags = way.get("tags", {})
+        for i in range(len(geom) - 1):
+            segments.append((tags,
+                              geom[i]["lon"],  geom[i]["lat"],
+                              geom[i+1]["lon"], geom[i+1]["lat"]))
+
+    max_dist_sq = (max_snap_m / 111_000) ** 2  # degrees² threshold
+
+    result = []
+    for pt in sec_points:
+        px, py = pt.longitude, pt.latitude
+        best_sq = float("inf")
+        best_tags = {}
+        for tags, ax, ay, bx, by in segments:
+            d = _point_to_segment_dist_sq(px, py, ax, ay, bx, by)
+            if d < best_sq:
+                best_sq = d
+                best_tags = tags
+        result.append(best_tags if best_sq <= max_dist_sq else {})
+    return result
+
+
+def compute_stats(labels):
+    """Convert a list of string labels into a percentage dict, sorted by descending %."""
+    from collections import Counter
+    n = len(labels)
+    if n == 0:
+        return {}
+    counts = Counter(labels)
+    return {k: round(v * 100.0 / n, 1) for k, v in sorted(counts.items(), key=lambda x: -x[1])}
+
+
+def fetch_surface_ways(sec_points, corridor_m=150):
+    """
+    Query Overpass for highway ways with geometry in the section bbox.
+    Returns list of way elements with 'tags' and 'geometry'. Disk-cached.
+    """
+    lats = [p.latitude  for p in sec_points]
+    lons = [p.longitude for p in sec_points]
+    pad  = corridor_m / 111_000
+    bbox = f"{min(lats)-pad:.5f},{min(lons)-pad:.5f},{max(lats)+pad:.5f},{max(lons)+pad:.5f}"
+
+    if bbox in _surface_cache:
+        return _surface_cache[bbox]
+
+    query = (
+        f"[out:json][timeout:30];\n"
+        f"(\n  way[\"highway\"]({bbox});\n);\n"
+        f"out geom;"
+    )
+    print(f"    Fetching surface ways ({bbox[:35]}...)...")
+    try:
+        resp = requests.post(OVERPASS_URL, data={"data": query}, timeout=35)
+        resp.raise_for_status()
+        ways = [el for el in resp.json().get("elements", []) if el.get("type") == "way"]
+        print(f"    → {len(ways)} ways")
+    except Exception as exc:
+        print(f"    Surface Overpass warning: {exc}")
+        ways = []
+
+    _surface_cache[bbox] = ways
+    _save_surface_cache()
+    return ways
 
 def find_named_boundary(points, dists, target_km, snap_km=3.0):
     """
@@ -746,10 +894,28 @@ def render_elevation_png(sec_dists, sec_elevs, path, title=""):
     plt.close(fig)
 
 
-def render_map_png(points, path, width=600, height=400):
+def render_map_png(points, path, width=600, height=400, point_surfaces=None):
     m = StaticMap(width, height)
     coords = [(p.longitude, p.latitude) for p in points]
-    m.add_line(Line(coords, "blue", 3))
+
+    if point_surfaces and len(point_surfaces) == len(points):
+        # Draw colored segments — group consecutive points with same surface
+        seg_coords = [coords[0]]
+        seg_color  = SURFACE_COLOR.get(point_surfaces[0], SURFACE_COLOR['unknown'])
+        for i in range(1, len(coords)):
+            cur_color = SURFACE_COLOR.get(point_surfaces[i], SURFACE_COLOR['unknown'])
+            if cur_color == seg_color:
+                seg_coords.append(coords[i])
+            else:
+                if len(seg_coords) >= 2:
+                    m.add_line(Line(seg_coords, seg_color, 3))
+                seg_coords = [coords[i - 1], coords[i]]
+                seg_color  = cur_color
+        if len(seg_coords) >= 2:
+            m.add_line(Line(seg_coords, seg_color, 3))
+    else:
+        m.add_line(Line(coords, "blue", 3))
+
     m.add_marker(CircleMarker(coords[0], "green", 12))
     m.add_marker(CircleMarker(coords[-1], "red", 12))
     m.render().save(path)
@@ -869,15 +1035,29 @@ def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR
         os.makedirs(sec_dir, exist_ok=True)
 
         map_path = os.path.join(sec_dir, "map.png")
-        if os.path.exists(map_path):
-            print(f"  [Section {idx+1:02d}] Map already cached, skipping render")
-        else:
-            print(f"  [Section {idx+1:02d}] Rendering map...")
+        stamp_path = os.path.join(sec_dir, "map_surface.stamp")
+
+        # Fetch surface/road data (cached after first run)
+        print(f"  [Section {idx+1:02d}] Fetching surface/road type data...")
+        surface_ways   = fetch_surface_ways(sec_points)
+        point_tags     = snap_points_to_ways(sec_points, surface_ways)
+        point_surfaces = [classify_surface(t)   for t in point_tags]
+        point_roads    = [classify_road_type(t) for t in point_tags]
+        surface_stats  = compute_stats(point_surfaces)
+        road_stats     = compute_stats(point_roads)
+
+        # Render colored map; use stamp file to detect if already done
+        need_map = not os.path.exists(map_path) or not os.path.exists(stamp_path)
+        if need_map:
+            print(f"  [Section {idx+1:02d}] Rendering colored map...")
             try:
-                render_map_png(sec_points, map_path)
+                render_map_png(sec_points, map_path, point_surfaces=point_surfaces)
+                open(stamp_path, "w").close()
             except Exception as exc:
                 print(f"    WARNING: map render failed: {exc}")
                 map_path = None
+        else:
+            print(f"  [Section {idx+1:02d}] Colored map already cached, skipping render")
 
         elev_path = os.path.join(sec_dir, "elevation.png")
         if os.path.exists(elev_path):
@@ -925,6 +1105,20 @@ def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR
         # Merge and sort by dist_km
         all_pois = sorted(sec_waypoints + osm_pois, key=lambda x: x["dist_km"])
 
+        # Sample track points and elevation profile for interactive viewer
+        track_step = max(1, len(sec_points) // 300)
+        elev_step  = max(1, len(sec_points) // 200)
+        track_points_data = [
+            {"la": round(sec_points[i].latitude, 5),
+             "lo": round(sec_points[i].longitude, 5),
+             "s":  point_surfaces[i][0]}   # first char: 'a'=asphalt 'g'=gravel 'u'=unpaved 'k'=unknown
+            for i in range(0, len(sec_points), track_step)
+        ]
+        elevation_profile_data = [
+            {"d": round(sec_dists[i], 3), "e": int(sec_elevs[i])}
+            for i in range(0, len(sec_points), elev_step)
+        ]
+
         handbook["sections"].append({
             "index":             idx + 1,
             "label":             label,
@@ -941,6 +1135,10 @@ def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR
             "end_lon":           sec_points[-1].longitude,
             "waypoints":         all_pois,
             "notable_turns":     turns,
+            "surface_stats":     surface_stats,
+            "road_stats":        road_stats,
+            "track_points":      track_points_data,
+            "elevation_profile": elevation_profile_data,
             "map_png":           os.path.relpath(map_path,  output_dir) if map_path  else None,
             "elevation_png":     os.path.relpath(elev_path, output_dir) if elev_path else None,
         })
@@ -1030,6 +1228,35 @@ def img_to_base64(path):
         return None
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
+
+
+_STATS_COLORS = {
+    'asphalt': '#48bb78', 'gravel': '#ed8936', 'unpaved': '#e53e3e',
+    'cycleway': '#3182ce', 'path': '#805ad5',
+    'minor_road': '#718096', 'main_road': '#e53e3e',
+    'unknown': '#a0aec0',
+}
+
+def _render_stats_bar_html(label, stats):
+    if not stats:
+        return ""
+    segs = "".join(
+        f'<div class="stats-bar-seg" style="width:{pct}%;background:{_STATS_COLORS.get(cat,"#a0aec0")}" title="{cat} {pct}%"></div>'
+        for cat, pct in stats.items() if pct > 0
+    )
+    legend = "".join(
+        f'<span class="stats-legend-item">'
+        f'<span class="stats-legend-dot" style="background:{_STATS_COLORS.get(cat,"#a0aec0")}"></span>'
+        f'{cat.replace("_"," ")} {pct}%</span>'
+        for cat, pct in stats.items() if pct > 0
+    )
+    return (
+        f'<div class="stats-bar-row">'
+        f'<div class="stats-bar-label">{label}</div>'
+        f'<div class="stats-bar">{segs}</div>'
+        f'<div class="stats-legend">{legend}</div>'
+        f'</div>'
+    )
 
 
 def write_html(handbook, output_dir, html_path):
@@ -1172,6 +1399,16 @@ def write_html(handbook, output_dir, html_path):
         else:
             turns_html = "<h4>Notable Turns</h4><p style='font-size:.85rem;color:#666'>No sharp turns in this section.</p>"
 
+        # Surface / road stats bars
+        _surface_stats = sec.get("surface_stats", {})
+        _road_stats    = sec.get("road_stats", {})
+        if _surface_stats or _road_stats:
+            _bars = _render_stats_bar_html("Surface", _surface_stats)
+            _bars += _render_stats_bar_html("Road type", _road_stats)
+            stats_html = f'<div class="stats-bars">{_bars}</div>'
+        else:
+            stats_html = ""
+
         sections_html.append(f"""
 <div class="section" id="sec{sec['index']}" data-index="{sec['index'] - 1}">
   <div class="section-inner">
@@ -1185,6 +1422,7 @@ def write_html(handbook, output_dir, html_path):
       <tr><td>Start</td><td>{sec['start_lat']:.5f}, {sec['start_lon']:.5f}</td></tr>
       <tr><td>End</td><td>{sec['end_lat']:.5f}, {sec['end_lon']:.5f}</td></tr>
     </table>
+    {stats_html}
     <div class="imgs">
       <div>{map_tag}</div>
       <div>{elev_tag}</div>
@@ -1427,6 +1665,16 @@ html, body {{
 }}
 .imgs img {{ max-width: 100%; border-radius: 10px; display: block; box-shadow: 0 1px 4px rgba(0,0,0,.1); }}
 @media (max-width: 600px) {{ .imgs {{ grid-template-columns: 1fr; }} }}
+
+/* ── Surface / road type stats bars ── */
+.stats-bars {{ margin-bottom: 1rem; }}
+.stats-bar-row {{ margin-bottom: .55rem; }}
+.stats-bar-label {{ font-size: .75rem; font-weight: 600; color: #4a5568; text-transform: uppercase; letter-spacing: .03em; margin-bottom: .18rem; }}
+.stats-bar {{ display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #e2e8f0; }}
+.stats-bar-seg {{ height: 100%; }}
+.stats-legend {{ display: flex; flex-wrap: wrap; gap: .25rem .65rem; margin-top: .22rem; }}
+.stats-legend-item {{ display: flex; align-items: center; gap: .3rem; font-size: .72rem; color: #4a5568; }}
+.stats-legend-dot {{ width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }}
 
 /* ── Section headings ── */
 h4 {{ margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }}

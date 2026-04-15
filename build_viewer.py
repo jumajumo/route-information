@@ -36,6 +36,8 @@ def build_viewer(jszip):
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2b6cb0">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%232b6cb0'/%3E%3Ctext x='90' y='125' font-size='96' text-anchor='middle'%3E%F0%9F%9A%B4%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 {VIEWER_CSS}
 </style>
@@ -118,6 +120,15 @@ def build_viewer(jszip):
 
 <!-- Toast -->
 <div id="toast"></div>
+
+<!-- Full-screen map modal -->
+<div id="map-modal">
+  <button id="map-close">&#10005;</button>
+  <div id="map-leaflet"></div>
+</div>
+
+<!-- Elevation tooltip -->
+<div id="elev-tooltip"></div>
 
 <script>
 {jszip}
@@ -373,6 +384,16 @@ html, body {
 .imgs img { max-width: 100%; border-radius: 10px; display: block; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
 @media (max-width: 600px) { .imgs { grid-template-columns: 1fr; } }
 
+/* ── Surface / road type stats bars ── */
+.stats-bars { margin-bottom: 1rem; }
+.stats-bar-row { margin-bottom: .55rem; }
+.stats-bar-label { font-size: .75rem; font-weight: 600; color: #4a5568; text-transform: uppercase; letter-spacing: .03em; margin-bottom: .18rem; }
+.stats-bar { display: flex; height: 10px; border-radius: 5px; overflow: hidden; background: #e2e8f0; }
+.stats-bar-seg { height: 100%; }
+.stats-legend { display: flex; flex-wrap: wrap; gap: .25rem .65rem; margin-top: .22rem; }
+.stats-legend-item { display: flex; align-items: center; gap: .3rem; font-size: .72rem; color: #4a5568; }
+.stats-legend-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+
 /* ── Headings ── */
 h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
 
@@ -472,6 +493,53 @@ h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700;
   white-space: nowrap;
 }
 #toast.show { opacity: 1; }
+
+/* ── Full-screen map modal ── */
+#map-modal {
+  display: none; position: fixed; inset: 0; z-index: 300;
+  background: #000;
+}
+#map-modal.open { display: block; }
+#map-leaflet { width: 100%; height: 100%; }
+#map-close {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: 12px; z-index: 310;
+  background: rgba(0,0,0,.55); color: white; border: none;
+  border-radius: 50%; width: 38px; height: 38px;
+  font-size: 1.1rem; cursor: pointer; line-height: 38px; text-align: center;
+}
+#map-close:active { background: rgba(0,0,0,.8); }
+
+/* ── Map tap button ── */
+.map-tap {
+  background: none; border: none; padding: 0;
+  cursor: zoom-in; width: 100%; display: block; position: relative;
+}
+.map-tap img { width: 100%; display: block; }
+
+/* ── Map hover dot (overlaid on PNG when Leaflet not open) ── */
+.map-hover-dot {
+  position: absolute; width: 12px; height: 12px;
+  background: #3182ce; border: 2px solid white;
+  border-radius: 50%; transform: translate(-50%,-50%);
+  pointer-events: none; display: none; z-index: 2;
+}
+
+/* ── Elevation canvas ── */
+.elev-canvas {
+  max-width: 100%; border-radius: 10px; display: block;
+  box-shadow: 0 1px 4px rgba(0,0,0,.1); cursor: crosshair;
+}
+
+/* ── Elevation tooltip ── */
+#elev-tooltip {
+  position: fixed; background: #2d3748; color: white;
+  padding: .3rem .6rem; border-radius: 6px; font-size: .78rem;
+  pointer-events: none; z-index: 200; white-space: nowrap;
+  opacity: 0; transition: opacity .1s;
+}
+#elev-tooltip.show { opacity: 1; }
 """
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -694,6 +762,12 @@ function openRoute(record) {
     slider.appendChild(div);
   });
 
+  // Draw elevation canvases and attach hover
+  currentBook = record;
+  setTimeout(() => {
+    drawElevationCanvases();
+  }, 50);
+
   // Dots
   const dotsEl = document.getElementById('dots');
   dotsEl.innerHTML = sections.map((_, i) =>
@@ -735,16 +809,38 @@ const POI_ICON = {
 };
 const PRIORITY_OPEN = new Set();
 
+const STATS_COLORS = {
+  asphalt: '#48bb78', gravel: '#ed8936', unpaved: '#e53e3e',
+  cycleway: '#3182ce', path: '#805ad5',
+  minor_road: '#718096', main_road: '#e53e3e', unknown: '#a0aec0',
+};
+function renderStatsBar(label, stats) {
+  if (!stats || !Object.keys(stats).length) return '';
+  const segs = Object.entries(stats).filter(([,p]) => p > 0).map(([cat, pct]) =>
+    '<div class="stats-bar-seg" style="width:'+pct+'%;background:'+(STATS_COLORS[cat]||'#a0aec0')+'" title="'+cat+' '+pct+'%"></div>'
+  ).join('');
+  const legend = Object.entries(stats).filter(([,p]) => p > 0).map(([cat, pct]) =>
+    '<span class="stats-legend-item">' +
+    '<span class="stats-legend-dot" style="background:'+(STATS_COLORS[cat]||'#a0aec0')+'"></span>' +
+    cat.replace(/_/g,' ')+' '+pct+'%</span>'
+  ).join('');
+  return '<div class="stats-bar-row"><div class="stats-bar-label">'+label+'</div>' +
+    '<div class="stats-bar">'+segs+'</div>' +
+    '<div class="stats-legend">'+legend+'</div></div>';
+}
+
 function renderSection(sec, assets) {
   const mapKey  = 'assets/section_' + String(sec.index).padStart(2,'0') + '/map.png';
   const elevKey = 'assets/section_' + String(sec.index).padStart(2,'0') + '/elevation.png';
   const mapSrc  = assets[mapKey]  || null;
   const elevSrc = assets[elevKey] || null;
 
-  const mapTag  = mapSrc  ? '<img src="' + mapSrc  + '" style="max-width:100%;border-radius:10px;">'
-                          : '<p><em>Map unavailable</em></p>';
-  const elevTag = elevSrc ? '<img src="' + elevSrc + '" style="max-width:100%;border-radius:10px;">'
-                          : '<p><em>Elevation unavailable</em></p>';
+  const mapTag  = mapSrc
+    ? '<button class="map-tap" data-sec-index="' + sec.index + '"><img src="' + mapSrc + '" style="max-width:100%;border-radius:10px;"><div class="map-hover-dot" id="mhd-' + sec.index + '"></div></button>'
+    : '<p><em>Map unavailable</em></p>';
+  const elevTag = elevSrc || (sec.elevation_profile && sec.elevation_profile.length)
+    ? '<canvas class="elev-canvas" id="elev-' + sec.index + '" data-sec-index="' + sec.index + '" style="max-width:100%;border-radius:10px;height:160px;" width="400" height="160"></canvas>'
+    : '<p><em>Elevation unavailable</em></p>';
 
   // Turns
   let turnsHtml = '';
@@ -825,9 +921,256 @@ function renderSection(sec, assets) {
       '<tr><td>Route km</td><td>' + Math.round(sec.start_km) + ' – ' + Math.round(sec.end_km) + ' km</td></tr>' +
       '<tr><td>Ascent</td><td>↑ ' + (sec.elevation_gain_m||0) + ' m &nbsp; ↓ ' + (sec.elevation_loss_m||0) + ' m</td></tr>' +
     '</table>' +
+    (sec.surface_stats || sec.road_stats ? '<div class="stats-bars">' +
+      (sec.surface_stats ? renderStatsBar('Surface', sec.surface_stats) : '') +
+      (sec.road_stats    ? renderStatsBar('Road type', sec.road_stats)  : '') +
+    '</div>' : '') +
     '<div class="imgs">' + mapTag + elevTag + '</div>' +
     turnsHtml + wpsHtml +
   '</div>';
+}
+
+// ── Interactive map modal ────────────────────────────────────────────────────
+var currentBook = null;
+
+document.addEventListener('click', function(e) {
+  const btn = e.target.closest('.map-tap');
+  if (!btn) return;
+  const idx = parseInt(btn.dataset.secIndex) - 1;
+  if (!currentBook) return;
+  openMapModal(currentBook.handbook.sections[idx]);
+});
+
+const SURF_COLORS = { a:'#48bb78', g:'#ed8936', u:'#e53e3e', k:'#a0aec0' };
+
+function openMapModal(sec) {
+  const modal = document.getElementById('map-modal');
+  modal.classList.add('open');
+  document.getElementById('map-close').onclick = function() {
+    modal.classList.remove('open');
+    if (window._leafMap) { window._leafMap.remove(); window._leafMap = null; }
+    if (window._elevMarker) { window._elevMarker = null; }
+  };
+
+  const map = L.map('map-leaflet');
+  window._leafMap = map;
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+  }).addTo(map);
+
+  // Draw colored track segments
+  if (sec.track_points && sec.track_points.length > 1) {
+    const pts = sec.track_points;
+    let seg = [pts[0]], segColor = SURF_COLORS[pts[0].s] || '#a0aec0';
+    for (let i = 1; i < pts.length; i++) {
+      const c = SURF_COLORS[pts[i].s] || '#a0aec0';
+      if (c === segColor) {
+        seg.push(pts[i]);
+      } else {
+        L.polyline(seg.map(p=>[p.la,p.lo]), {color:segColor, weight:5, opacity:.9}).addTo(map);
+        seg = [pts[i-1], pts[i]]; segColor = c;
+      }
+    }
+    L.polyline(seg.map(p=>[p.la,p.lo]), {color:segColor, weight:5, opacity:.9}).addTo(map);
+    map.fitBounds(L.latLngBounds(pts.map(p=>[p.la,p.lo])));
+  } else {
+    map.setView([sec.start_lat, sec.start_lon], 13);
+  }
+
+  // Start / end markers
+  L.circleMarker([sec.start_lat, sec.start_lon],
+    {radius:8, color:'white', fillColor:'#276749', fillOpacity:1, weight:2})
+    .bindPopup('<b>Start</b><br>' + escHtml(sec.start_name)).addTo(map);
+  L.circleMarker([sec.end_lat, sec.end_lon],
+    {radius:8, color:'white', fillColor:'#c05621', fillOpacity:1, weight:2})
+    .bindPopup('<b>End</b><br>' + escHtml(sec.end_name)).addTo(map);
+
+  // POI markers
+  (sec.waypoints || []).forEach(function(wp) {
+    const icon = POI_ICON[wp.category] || '\\uD83D\\uDCCC';
+    L.marker([wp.lat, wp.lon], {
+      icon: L.divIcon({html:'<span style="font-size:16px;line-height:1">'+icon+'</span>', className:'', iconAnchor:[8,8]})
+    }).bindPopup(escHtml(wp.name || wp.category)).addTo(map);
+  });
+
+  // Turn markers
+  (sec.notable_turns || []).forEach(function(t) {
+    L.circleMarker([t.lat, t.lon],
+      {radius:6, color:'#2b6cb0', fillColor:'white', fillOpacity:1, weight:2})
+      .bindPopup(escHtml((t.direction||'') + ' ' + (t.bearing_change||'') + '\\u00b0')).addTo(map);
+  });
+}
+
+// ── Elevation canvas ─────────────────────────────────────────────────────────
+function drawElevationCanvases() {
+  document.querySelectorAll('.elev-canvas').forEach(function(canvas) {
+    const idx = parseInt(canvas.dataset.secIndex) - 1;
+    const sec = currentBook && currentBook.handbook.sections[idx];
+    if (!sec) return;
+    drawElevation(canvas, sec);
+    attachElevationHover(canvas);
+  });
+}
+
+function drawElevation(canvas, sec) {
+  const prof = sec.elevation_profile;
+  if (!prof || !prof.length) return;
+  const W = canvas.offsetWidth || 400;
+  const H = canvas.offsetHeight || 160;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+
+  const minE = Math.min.apply(null, prof.map(function(p){return p.e;}));
+  const maxE = Math.max.apply(null, prof.map(function(p){return p.e;}));
+  const maxD = prof[prof.length-1].d;
+  const pad = {l:44, r:10, t:14, b:30};
+  const W2 = W - pad.l - pad.r;
+  const H2 = H - pad.t - pad.b;
+  const eRange = maxE - minE || 1;
+
+  function xp(d) { return pad.l + (d / maxD) * W2; }
+  function yp(e) { return pad.t + (1 - (e - minE) / eRange) * H2; }
+
+  // Grid lines + Y labels
+  ctx.font = '10px -apple-system,sans-serif';
+  ctx.fillStyle = '#718096';
+  ctx.textAlign = 'right';
+  const ticks = [minE, Math.round((minE + maxE) / 2), maxE];
+  ticks.forEach(function(v) {
+    const y = yp(v);
+    ctx.fillText(Math.round(v) + 'm', pad.l - 5, y + 4);
+    ctx.beginPath(); ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 0.5;
+    ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+  });
+
+  // X axis labels
+  ctx.textAlign = 'center';
+  [0, maxD / 2, maxD].forEach(function(v) {
+    ctx.fillText(v.toFixed(1) + 'km', xp(v), H - pad.b + 18);
+  });
+
+  // Fill
+  ctx.beginPath();
+  ctx.moveTo(xp(prof[0].d), H - pad.b);
+  prof.forEach(function(p) { ctx.lineTo(xp(p.d), yp(p.e)); });
+  ctx.lineTo(xp(prof[prof.length-1].d), H - pad.b);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(49,130,206,.18)';
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  prof.forEach(function(p, i) {
+    i === 0 ? ctx.moveTo(xp(p.d), yp(p.e)) : ctx.lineTo(xp(p.d), yp(p.e));
+  });
+  ctx.strokeStyle = '#3182ce'; ctx.lineWidth = 1.8; ctx.stroke();
+
+  // Cache metadata on canvas element
+  canvas._prof = prof; canvas._pad = pad; canvas._maxD = maxD;
+  canvas._minE = minE; canvas._maxE = maxE; canvas._sec = sec;
+}
+
+function showElevTooltip(canvas, xPos, yPos, d, e) {
+  const tip = document.getElementById('elev-tooltip');
+  const rect = canvas.getBoundingClientRect();
+  tip.textContent = d.toFixed(2) + ' km  ·  ' + Math.round(e) + ' m';
+  tip.classList.add('show');
+  let tx = rect.left + xPos + 12;
+  let ty = rect.top  + yPos - 28;
+  if (tx + 140 > window.innerWidth) tx = rect.left + xPos - 150;
+  if (ty < 4) ty = rect.top + yPos + 12;
+  tip.style.left = tx + 'px';
+  tip.style.top  = ty + 'px';
+}
+function hideElevTooltip() {
+  document.getElementById('elev-tooltip').classList.remove('show');
+}
+
+function attachElevationHover(canvas) {
+  function onMove(clientX, clientY) {
+    const prof = canvas._prof, pad = canvas._pad, maxD = canvas._maxD;
+    if (!prof) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    if (x < pad.l) return;
+    const d = (x - pad.l) / (canvas.offsetWidth - pad.l - pad.r) * maxD;
+    // Find closest profile point
+    let best = prof[0], bestDiff = Math.abs(prof[0].d - d);
+    for (let i = 1; i < prof.length; i++) {
+      const diff = Math.abs(prof[i].d - d);
+      if (diff < bestDiff) { bestDiff = diff; best = prof[i]; }
+    }
+    // Redraw canvas base, then crosshair overlay
+    drawElevation(canvas, canvas._sec);
+    const W = canvas.offsetWidth, H = canvas.offsetHeight;
+    const dpr = window.devicePixelRatio || 1;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+    const eRange = canvas._maxE - canvas._minE || 1;
+    const xPos = pad.l + (best.d / maxD) * (W - pad.l - canvas._pad.r);
+    const yPos = pad.t + (1 - (best.e - canvas._minE) / eRange) * (H - pad.t - pad.b);
+    // Vertical line
+    ctx.save();
+    ctx.beginPath(); ctx.strokeStyle = 'rgba(45,55,72,.45)'; ctx.lineWidth = 1;
+    ctx.setLineDash([3,3]);
+    ctx.moveTo(xPos, pad.t); ctx.lineTo(xPos, H - pad.b); ctx.stroke();
+    ctx.setLineDash([]);
+    // Dot
+    ctx.beginPath(); ctx.arc(xPos, yPos, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#3182ce'; ctx.fill();
+    ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+
+    showElevTooltip(canvas, xPos, yPos, best.d, best.e);
+
+    // Move dot on Leaflet map if open
+    if (window._leafMap && canvas._sec && canvas._sec.track_points) {
+      const tp = canvas._sec.track_points;
+      const ti = Math.min(Math.round(best.d / maxD * (tp.length - 1)), tp.length - 1);
+      const pt = tp[ti];
+      if (!window._elevMarker) {
+        window._elevMarker = L.circleMarker([pt.la, pt.lo],
+          {radius:7, color:'#2b6cb0', fillColor:'white', fillOpacity:1, weight:2})
+          .addTo(window._leafMap);
+      } else {
+        window._elevMarker.setLatLng([pt.la, pt.lo]);
+      }
+    }
+
+    // Move dot overlaid on the map PNG (when Leaflet not open)
+    const dot = document.getElementById('mhd-' + canvas._sec.index);
+    if (dot && !window._leafMap && canvas._sec.track_points) {
+      const tp = canvas._sec.track_points;
+      const ti = Math.min(Math.round(best.d / maxD * (tp.length - 1)), tp.length - 1);
+      const pt = tp[ti];
+      const sec = canvas._sec;
+      const latRange = sec.start_lat - sec.end_lat || 0.001;
+      const lonRange = sec.end_lon - sec.start_lon || 0.001;
+      const px = ((pt.lo - sec.start_lon) / lonRange) * 100;
+      const py = ((sec.start_lat - pt.la) / latRange) * 100;
+      dot.style.left = Math.max(0, Math.min(100, px)) + '%';
+      dot.style.top  = Math.max(0, Math.min(100, py)) + '%';
+      dot.style.display = 'block';
+    }
+  }
+
+  canvas.addEventListener('mousemove', function(e) { onMove(e.clientX, e.clientY); });
+  canvas.addEventListener('touchmove', function(e) {
+    e.preventDefault(); onMove(e.touches[0].clientX, e.touches[0].clientY);
+  }, {passive: false});
+  canvas.addEventListener('mouseleave', function() {
+    hideElevTooltip();
+    if (window._elevMarker && window._leafMap) {
+      window._leafMap.removeLayer(window._elevMarker);
+      window._elevMarker = null;
+    }
+    const dot = document.getElementById('mhd-' + (canvas._sec && canvas._sec.index));
+    if (dot) dot.style.display = 'none';
+    drawElevation(canvas, canvas._sec);
+  });
 }
 
 // ── Navigation ──────────────────────────────────────────────────────────────
