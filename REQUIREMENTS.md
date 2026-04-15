@@ -239,6 +239,7 @@ curl -sL https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css -o
   - Desktop (≥ 960 px): persistent sidebar, collapsible with toggle button
 - Section slides: horizontal slider (mobile swipe) or vertical scroll (desktop)
 - Keyboard: left/right arrow keys navigate between sections; Escape returns to library
+- **GPS auto-navigation**: on route open (from library or new file load), `navigator.geolocation.getCurrentPosition` is called once; the section whose track points are nearest to the GPS fix (Haversine distance) is selected automatically. If geolocation is denied or unavailable, the viewer stays on section 1 silently.
 
 ### 3.3 Section Content
 

@@ -908,6 +908,16 @@ function openRoute(record) {
   }
 
   updateUI();
+
+  // Auto-navigate to nearest section based on current GPS position
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      function(pos) {
+        jumpToNearestSection(pos.coords.latitude, pos.coords.longitude);
+      },
+      function() {} // silently ignore denial or timeout
+    );
+  }
 }
 
 // ── Section HTML renderer ───────────────────────────────────────────────────
@@ -1355,6 +1365,30 @@ function attachElevationHover(canvas, globalMinE, globalMaxE) {
     }
     drawElevation(canvas, canvas._sec, canvas._globalMinE, canvas._globalMaxE);
   });
+}
+
+// ── GPS nearest-section ─────────────────────────────────────────────────────
+function haversineDist(lat1, lon1, lat2, lon2) {
+  var R = 6371;
+  var dLat = (lat2 - lat1) * Math.PI / 180;
+  var dLon = (lon2 - lon1) * Math.PI / 180;
+  var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+          Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+          Math.sin(dLon/2)*Math.sin(dLon/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function jumpToNearestSection(lat, lon) {
+  if (!currentBook) return;
+  var sections = currentBook.handbook.sections;
+  var bestIdx = 0, bestDist = Infinity;
+  sections.forEach(function(sec, i) {
+    (sec.track_points || []).forEach(function(tp) {
+      var d = haversineDist(lat, lon, tp.la, tp.lo);
+      if (d < bestDist) { bestDist = d; bestIdx = i; }
+    });
+  });
+  if (bestIdx !== current) goTo(bestIdx);
 }
 
 // ── Navigation ──────────────────────────────────────────────────────────────

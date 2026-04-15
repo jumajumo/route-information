@@ -1,5 +1,5 @@
 // RouteBook service worker — auto-generated, do not edit
-const VERSION = '20260415201027';
+const VERSION = '20260415202809';
 const CACHE   = 'routebook-' + VERSION;
 
 self.addEventListener('install', function(e) {
