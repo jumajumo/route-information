@@ -13,6 +13,7 @@ reverse geocoding, so each section runs from one real place to another.
 
 import argparse
 import base64
+import io
 import json
 import math
 import os
@@ -272,14 +273,132 @@ def fetch_wikimedia_photo(lat, lon, radius=1000):
 
 
 def fetch_photo(lat, lon):
-    """Try KartaView first, fall back to Wikimedia Commons."""
+    """Try KartaView first, fall back to Wikimedia Commons, then OSM static map thumbnail."""
     photo = fetch_kartaview_photo(lat, lon, radius=500)
     if photo is None:
         print(f"      No KartaView — trying Wikimedia Commons...")
         photo = fetch_wikimedia_photo(lat, lon, radius=1000)
         if photo:
             print(f"      → Found: {photo['title'][:50]}")
+    if photo is None:
+        print(f"      No street photo — generating OSM map thumbnail...")
+        photo = render_osm_thumbnail(lat, lon)
     return photo
+
+
+def render_osm_thumbnail(lat, lon, width=220, height=148, zoom=15):
+    """
+    Fetch real OSM tile(s) and composite a map thumbnail with a red pin marker.
+    Falls back to a Pillow-only placeholder if tile fetch fails.
+    Disk-cached by rounded coordinate + zoom.
+    """
+    import math
+    key = f"osm_{round(lat,4)}_{round(lon,4)}_{zoom}"
+    cached = _kartaview_cache.get(key)  # reuse general in-memory cache
+    if cached:
+        return cached
+
+    maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+
+    def _draw_marker(img, px, py):
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(img)
+        r = 9
+        draw.ellipse([px-r-2, py-r-2, px+r+2, py+r+2], fill="white")
+        draw.ellipse([px-r,   py-r,   px+r,   py+r  ], fill="#e53e3e")
+        draw.ellipse([px-3,   py-3,   px+3,   py+3  ], fill="white")
+
+    def _lat_lon_to_tile(la, lo, z):
+        n = 2 ** z
+        tx = int((lo + 180) / 360 * n)
+        ty = int((1 - math.log(math.tan(math.radians(la)) +
+                               1 / math.cos(math.radians(la))) / math.pi) / 2 * n)
+        return tx, ty
+
+    def _tile_pixel_offset(la, lo, tx, ty, z, ts=256):
+        n = 2 ** z
+        px = (lo + 180) / 360 * n * ts - tx * ts
+        py = (1 - math.log(math.tan(math.radians(la)) +
+                            1 / math.cos(math.radians(la))) / math.pi) / 2 * n * ts - ty * ts
+        return int(px), int(py)
+
+    def _fetch_tile(tx, ty, z):
+        """Return tile as PIL Image, using disk cache under cache/tiles/."""
+        from PIL import Image
+        if _cache_dir:
+            tile_path = os.path.join(_cache_dir, "tiles", str(z), str(tx), f"{ty}.png")
+            if os.path.exists(tile_path):
+                return Image.open(tile_path).convert("RGB")
+        else:
+            tile_path = None
+        url = f"https://tile.openstreetmap.org/{z}/{tx}/{ty}.png"
+        hdrs = {"User-Agent": "gpx-handbook-generator/1.0"}
+        resp = requests.get(url, timeout=8, headers=hdrs)
+        resp.raise_for_status()
+        if tile_path:
+            os.makedirs(os.path.dirname(tile_path), exist_ok=True)
+            with open(tile_path, "wb") as fh:
+                fh.write(resp.content)
+            return Image.open(tile_path).convert("RGB")
+        return Image.open(io.BytesIO(resp.content)).convert("RGB")
+
+    try:
+        from PIL import Image
+        cx, cy = _lat_lon_to_tile(lat, lon, zoom)
+        ts = 256
+        grid = Image.new("RGB", (ts * 3, ts * 3))
+        for dx in range(-1, 2):
+            for dy in range(-1, 2):
+                tile = _fetch_tile(cx + dx, cy + dy, zoom)
+                grid.paste(tile, ((dx + 1) * ts, (dy + 1) * ts))
+
+        # Pixel position of the point within the 3×3 composite
+        px, py = _tile_pixel_offset(lat, lon, cx - 1, cy - 1, zoom, ts)
+
+        # Crop to desired size centered on point
+        left = max(0, min(px - width  // 2, ts * 3 - width))
+        top  = max(0, min(py - height // 2, ts * 3 - height))
+        crop = grid.crop((left, top, left + width, top + height))
+        _draw_marker(crop, px - left, py - top)
+
+        buf = io.BytesIO()
+        crop.save(buf, format="PNG", optimize=True)
+        b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        result = {"thumb_b64": b64, "full_url": maps_url, "source": "osm_map", "date": ""}
+        _kartaview_cache[key] = result
+        _save_kartaview_cache()
+        return result
+
+    except Exception as e:
+        print(f"      OSM tile fetch failed ({e}), using placeholder...")
+
+    # Pillow-only fallback
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        img = Image.new("RGB", (width, height), color="#e8edf2")
+        draw = ImageDraw.Draw(img)
+        for x in range(0, width, 22):
+            draw.line([(x, 0), (x, height)], fill="#d0d8e0", width=1)
+        for y in range(0, height, 22):
+            draw.line([(0, y), (width, y)], fill="#d0d8e0", width=1)
+        _draw_marker(img, width // 2, height // 2)
+        coord_text = f"{lat:.4f}, {lon:.4f}"
+        try:
+            font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 11)
+        except Exception:
+            font = ImageFont.load_default()
+        bbox = draw.textbbox((0, 0), coord_text, font=font)
+        tw = bbox[2] - bbox[0]
+        draw.rectangle([(width//2 - tw//2 - 4, height - 20), (width//2 + tw//2 + 4, height - 4)],
+                       fill="#2b6cb0")
+        draw.text((width//2 - tw//2, height - 19), coord_text, fill="white", font=font)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG", optimize=True)
+        b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        return {"thumb_b64": b64, "full_url": maps_url, "source": "osm_map", "date": ""}
+    except Exception as e2:
+        print(f"      Map placeholder failed: {e2}")
+        return None
 
 
 def embed_photo_url(url):
@@ -705,7 +824,7 @@ def detect_turns(points, sec_dists, sec_elevs, threshold=45):
 # Main generator
 # ---------------------------------------------------------------------------
 
-def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR):
+def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR, output_name=None, title=None):
     print(f"Loading GPX: {gpx_path}")
     os.makedirs(output_dir, exist_ok=True)
     init_cache(output_dir)
@@ -730,6 +849,7 @@ def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR
 
     handbook = {
         "source_file": os.path.basename(gpx_path),
+        "title":       title or os.path.basename(gpx_path),
         "total_km": round(dists[-1], 2),
         "section_target_km": section_km,
         "sections": [],
@@ -834,7 +954,7 @@ def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR
     write_html(handbook, output_dir, html_path)
     print(f"Self-contained HTML written: {html_path}")
 
-    rb_path = write_routebook(handbook, output_dir)
+    rb_path = write_routebook(handbook, output_dir, output_name)
     print(f"Routebook written:      {rb_path}")
 
     return handbook
@@ -844,7 +964,7 @@ def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR
 # .jumroutebook output  (ZIP with manifest + data + assets)
 # ---------------------------------------------------------------------------
 
-def write_routebook(handbook, output_dir):
+def write_routebook(handbook, output_dir, output_name=None):
     """
     Pack the handbook into a self-contained .jumroutebook file.
 
@@ -858,16 +978,18 @@ def write_routebook(handbook, output_dir):
     """
     import datetime
 
-    title = handbook.get("source_file", "route").rsplit(".", 1)[0]
-    # Sanitise for filename
-    safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title).strip()
+    title = handbook.get("title") or handbook.get("source_file", "route").rsplit(".", 1)[0]
+    if output_name:
+        safe = output_name
+    else:
+        safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title).strip()
     rb_path = os.path.join(output_dir, f"{safe}.jumroutebook")
 
     manifest = {
         "format":    "jumroutebook",
         "version":   "1.0",
         "generator": "gpx-handbook-generator",
-        "title":     handbook.get("source_file", ""),
+        "title":     handbook.get("title") or handbook.get("source_file", ""),
         "total_km":  handbook.get("total_km", 0),
         "sections":  len(handbook.get("sections", [])),
         "created":   datetime.date.today().isoformat(),
@@ -981,7 +1103,7 @@ def write_html(handbook, output_dir, html_path):
                     oh = wp.get('opening_hours', '')
                     website = wp.get('website', '')
                     lat_w, lon_w = wp.get('lat', ''), wp.get('lon', '')
-                    gmaps_link = f'<a href="https://www.google.com/maps?q={lat_w},{lon_w}" target="_blank">📍</a>'
+                    gmaps_link = f'<a href="https://www.google.com/maps/search/?api=1&query={lat_w},{lon_w}" target="_blank">📍</a>'
                     if website:
                         link_cell = f'{gmaps_link} <a href="{website}" target="_blank">🔗 website</a>'
                     elif oh:
@@ -1018,9 +1140,10 @@ def write_html(handbook, output_dir, html_path):
                 photo = t.get("photo")
                 dir_class = "left" if t["direction"] == "LEFT" else "right"
                 if photo:
-                    source_badge = ""
                     if photo.get("source") == "wikimedia":
                         source_badge = '<span class="photo-src">📷 Commons</span>'
+                    elif photo.get("source") == "osm_map":
+                        source_badge = '<span class="photo-src">🗺️ OSM map</span>'
                     elif photo.get("date"):
                         source_badge = f'<span class="photo-src">📷 KartaView {photo["date"]}</span>'
                     else:
@@ -1596,13 +1719,77 @@ if ('serviceWorker' in navigator) {{
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GPX Route Handbook Generator")
     parser.add_argument("gpx", nargs="?", help="Path to GPX file")
-    parser.add_argument("--section-km", type=float, default=SECTION_KM)
+    parser.add_argument("--section-km", type=float, default=None)
     parser.add_argument("--max-km",     type=float, default=None,
                         help="Only process first N km of the route")
-    parser.add_argument("--output-dir", default=OUTPUT_DIR)
+    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-name", default=None,
+                        help="Base filename for the .jumroutebook archive (without extension)")
+    parser.add_argument("--title", default=None,
+                        help="Display title shown in the viewer app (defaults to GPX filename)")
     parser.add_argument("--regen-html", action="store_true",
                         help="Rebuild HTML from existing handbook.json without re-running GPX processing")
     args = parser.parse_args()
+
+    if not args.regen_html:
+        # Only prompt interactively when the essential args (gpx + title + output-name) are missing
+        interactive = not (args.gpx and args.title and args.output_name)
+
+        if interactive:
+            print("=" * 56)
+            print("  GPX Route Handbook Generator")
+            print("=" * 56)
+
+            # GPX file
+            if not args.gpx:
+                while True:
+                    val = input(f"  GPX file path: ").strip()
+                    if val and os.path.exists(val):
+                        args.gpx = val
+                        break
+                    print(f"    ✗ File not found: {val!r}")
+
+            # Title
+            default_title = os.path.basename(args.gpx).rsplit(".", 1)[0]
+            if not args.title:
+                val = input(f"  Display title [{default_title}]: ").strip()
+                args.title = val if val else default_title
+
+            # Output name
+            if not args.output_name:
+                safe_default = "".join(c if c.isalnum() or c in "-_ " else "_" for c in args.title).strip()
+                val = input(f"  Archive filename (without .jumroutebook) [{safe_default}]: ").strip()
+                args.output_name = val if val else safe_default
+
+            # Section km
+            if args.section_km is None:
+                val = input(f"  Section length in km [{SECTION_KM}]: ").strip()
+                try:
+                    args.section_km = float(val) if val else SECTION_KM
+                except ValueError:
+                    args.section_km = SECTION_KM
+
+            # Max km
+            if args.max_km is None:
+                val = input(f"  Limit route to first N km (leave blank for full route): ").strip()
+                try:
+                    args.max_km = float(val) if val else None
+                except ValueError:
+                    args.max_km = None
+
+            # Output dir
+            if not args.output_dir:
+                val = input(f"  Output directory [{OUTPUT_DIR}]: ").strip()
+                args.output_dir = val if val else OUTPUT_DIR
+
+            print()
+
+
+    # Apply defaults for anything still unset
+    if args.section_km is None:
+        args.section_km = SECTION_KM
+    if args.output_dir is None:
+        args.output_dir = OUTPUT_DIR
 
     if args.regen_html:
         json_path = os.path.join(args.output_dir, "handbook.json")
@@ -1615,10 +1802,8 @@ if __name__ == "__main__":
         html_path = os.path.join(args.output_dir, "handbook_selfcontained.html")
         write_html(handbook, args.output_dir, html_path)
         print(f"HTML regenerated: {html_path}")
-        rb_path = write_routebook(handbook, args.output_dir)
+        rb_path = write_routebook(handbook, args.output_dir, args.output_name)
         print(f"Routebook written: {rb_path}")
     else:
-        if not args.gpx:
-            parser.error("gpx argument is required unless --regen-html is used")
-        result = generate(args.gpx, args.section_km, args.max_km, args.output_dir)
+        result = generate(args.gpx, args.section_km, args.max_km, args.output_dir, args.output_name, args.title)
         print(f"\nDone. {len(result['sections'])} sections in '{args.output_dir}/'")

@@ -710,8 +710,7 @@ const POI_ICON = {
   bicycle:'🚲', viewpoint:'👁️', hotel:'🏨', guest_house:'🏠',
   hostel:'🛏️', camp_site:'⛺', information:'ℹ️', spring:'💧', wayside_cross:'✝️',
 };
-const PRIORITY_OPEN = new Set(['restaurant','cafe','fast_food','bar','pub',
-  'drinking_water','spring','bicycle','bicycle_repair_station']);
+const PRIORITY_OPEN = new Set();
 
 function renderSection(sec, assets) {
   const mapKey  = 'assets/section_' + String(sec.index).padStart(2,'0') + '/map.png';
@@ -731,10 +730,15 @@ function renderSection(sec, assets) {
       const photo = t.photo || {};
       const thumb = photo.thumb_b64 || null;
       const dirCls = (t.direction||'').toLowerCase().includes('left') ? 'left' : 'right';
+      const srcBadge = photo.source === 'wikimedia' ? '<span class="photo-src">📷 Commons</span>'
+                     : photo.source === 'osm_map'   ? '<span class="photo-src">🗺️ OSM map</span>'
+                     : photo.date                   ? '<span class="photo-src">📷 KartaView ' + photo.date + '</span>'
+                     : thumb                        ? '<span class="photo-src">📷 KartaView</span>'
+                     : '';
       const imgHtml = thumb
-        ? '<a href="' + escHtml(photo.full_url||'#') + '" target="_blank"><img src="' + thumb + '" class="turn-photo" alt="Photo"></a>'
+        ? '<a href="' + escHtml(photo.full_url||'#') + '" target="_blank"><img src="' + thumb + '" class="turn-photo" alt="Photo"></a>' + srcBadge
         : '<div class="turn-photo-na">📷 No photo</div>';
-      const mapsHref = 'https://www.google.com/maps?q=' + t.lat + ',' + t.lon;
+      const mapsHref = 'https://www.google.com/maps/search/?api=1&query=' + t.lat + ',' + t.lon;
       return '<div class="turn-card">' +
         '<div class="turn-photo-col">' + imgHtml + '</div>' +
         '<div class="turn-info">' +
@@ -769,7 +773,7 @@ function renderSection(sec, assets) {
       const icon = POI_ICON[cat] || '📌';
       const open = PRIORITY_OPEN.has(cat) ? ' open' : '';
       const rows = wps.map(wp => {
-        const gm = 'https://www.google.com/maps?q=' + wp.lat + ',' + wp.lon;
+        const gm = 'https://www.google.com/maps/search/?api=1&query=' + wp.lat + ',' + wp.lon;
         const gmLink = '<a href="' + gm + '" target="_blank">📍</a>';
         let linkCell = gmLink;
         if (wp.website) linkCell = gmLink + ' <a href="' + escHtml(wp.website) + '" target="_blank">🔗</a>';
