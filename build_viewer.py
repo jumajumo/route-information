@@ -1,29 +1,40 @@
 #!/usr/bin/env python3
 """
-Build viewer.html — embeds JSZip and all viewer logic into a single self-contained file.
+Build viewer.html — embeds JSZip, Leaflet, and all viewer logic into a single self-contained file.
 Run:  python3 build_viewer.py
 """
 import os, sys
 
-JSZIP_PATH = "/tmp/jszip.min.js"
+JSZIP_PATH       = "/tmp/jszip.min.js"
+LEAFLET_JS_PATH  = "/tmp/leaflet.js"
+LEAFLET_CSS_PATH = "/tmp/leaflet.css"
 
 def main():
-    if not os.path.exists(JSZIP_PATH):
-        print(f"ERROR: {JSZIP_PATH} not found.")
-        print("Download it with:")
-        print("  curl -sL https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js -o /tmp/jszip.min.js")
+    missing = []
+    for path, cmd in [
+        (JSZIP_PATH,       "curl -sL https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js -o /tmp/jszip.min.js"),
+        (LEAFLET_JS_PATH,  "curl -sL https://unpkg.com/leaflet@1.9.4/dist/leaflet.js  -o /tmp/leaflet.js"),
+        (LEAFLET_CSS_PATH, "curl -sL https://unpkg.com/leaflet@1.9.4/dist/leaflet.css -o /tmp/leaflet.css"),
+    ]:
+        if not os.path.exists(path):
+            missing.append((path, cmd))
+    if missing:
+        print("ERROR: missing asset files. Download with:")
+        for _, cmd in missing:
+            print(f"  {cmd}")
         sys.exit(1)
 
-    with open(JSZIP_PATH, encoding="utf-8") as f:
-        jszip = f.read()
+    with open(JSZIP_PATH,       encoding="utf-8") as f: jszip       = f.read()
+    with open(LEAFLET_JS_PATH,  encoding="utf-8") as f: leaflet_js  = f.read()
+    with open(LEAFLET_CSS_PATH, encoding="utf-8") as f: leaflet_css = f.read()
 
-    html = build_viewer(jszip)
+    html = build_viewer(jszip, leaflet_js, leaflet_css)
     out = "viewer.html"
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
     print(f"viewer.html written ({len(html)//1024} KB)")
 
-def build_viewer(jszip):
+def build_viewer(jszip, leaflet_js, leaflet_css):
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -36,8 +47,12 @@ def build_viewer(jszip):
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#2b6cb0">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%232b6cb0'/%3E%3Ctext x='90' y='125' font-size='96' text-anchor='middle'%3E%F0%9F%9A%B4%3C/text%3E%3C/svg%3E">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+{leaflet_css}
+</style>
+<script>
+{leaflet_js}
+</script>
 <style>
 {VIEWER_CSS}
 </style>
@@ -120,12 +135,6 @@ def build_viewer(jszip):
 
 <!-- Toast -->
 <div id="toast"></div>
-
-<!-- Full-screen map modal -->
-<div id="map-modal">
-  <button id="map-close">&#10005;</button>
-  <div id="map-leaflet"></div>
-</div>
 
 <!-- Elevation tooltip -->
 <div id="elev-tooltip"></div>
@@ -381,8 +390,16 @@ html, body {
 
 /* ── Map + elevation ── */
 .imgs { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-bottom: 1rem; }
-.imgs img { max-width: 100%; border-radius: 10px; display: block; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
 @media (max-width: 600px) { .imgs { grid-template-columns: 1fr; } }
+
+/* ── Embedded section Leaflet map ── */
+.sec-map {
+  border-radius: 10px; overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0,0,0,.1);
+  min-height: 220px; height: 100%;
+  background: #e8edf2;
+}
+@media (max-width: 600px) { .sec-map { min-height: 200px; } }
 
 /* ── Surface / road type stats bars ── */
 .stats-bars { margin-bottom: 1rem; }
@@ -493,38 +510,6 @@ h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700;
   white-space: nowrap;
 }
 #toast.show { opacity: 1; }
-
-/* ── Full-screen map modal ── */
-#map-modal {
-  display: none; position: fixed; inset: 0; z-index: 300;
-  background: #000;
-}
-#map-modal.open { display: block; }
-#map-leaflet { width: 100%; height: 100%; }
-#map-close {
-  position: absolute;
-  top: max(12px, env(safe-area-inset-top));
-  right: 12px; z-index: 310;
-  background: rgba(0,0,0,.55); color: white; border: none;
-  border-radius: 50%; width: 38px; height: 38px;
-  font-size: 1.1rem; cursor: pointer; line-height: 38px; text-align: center;
-}
-#map-close:active { background: rgba(0,0,0,.8); }
-
-/* ── Map tap button ── */
-.map-tap {
-  background: none; border: none; padding: 0;
-  cursor: zoom-in; width: 100%; display: block; position: relative;
-}
-.map-tap img { width: 100%; display: block; }
-
-/* ── Map hover dot (overlaid on PNG when Leaflet not open) ── */
-.map-hover-dot {
-  position: absolute; width: 12px; height: 12px;
-  background: #3182ce; border: 2px solid white;
-  border-radius: 50%; transform: translate(-50%,-50%);
-  pointer-events: none; display: none; z-index: 2;
-}
 
 /* ── Elevation canvas ── */
 .elev-canvas {
@@ -765,7 +750,7 @@ function openRoute(record) {
   // Draw elevation canvases and attach hover
   currentBook = record;
   setTimeout(() => {
-    drawElevationCanvases();
+    initSectionMaps();
   }, 50);
 
   // Dots
@@ -835,10 +820,8 @@ function renderSection(sec, assets) {
   const mapSrc  = assets[mapKey]  || null;
   const elevSrc = assets[elevKey] || null;
 
-  const mapTag  = mapSrc
-    ? '<button class="map-tap" data-sec-index="' + sec.index + '"><img src="' + mapSrc + '" style="max-width:100%;border-radius:10px;"><div class="map-hover-dot" id="mhd-' + sec.index + '"></div></button>'
-    : '<p><em>Map unavailable</em></p>';
-  const elevTag = elevSrc || (sec.elevation_profile && sec.elevation_profile.length)
+  const mapTag  = '<div class="sec-map" id="map-' + sec.index + '"></div>';
+  const elevTag = (sec.elevation_profile && sec.elevation_profile.length)
     ? '<canvas class="elev-canvas" id="elev-' + sec.index + '" data-sec-index="' + sec.index + '" style="max-width:100%;border-radius:10px;height:160px;" width="400" height="160"></canvas>'
     : '<p><em>Elevation unavailable</em></p>';
 
@@ -930,75 +913,73 @@ function renderSection(sec, assets) {
   '</div>';
 }
 
-// ── Interactive map modal ────────────────────────────────────────────────────
+// ── Per-section embedded Leaflet maps ───────────────────────────────────────
 var currentBook = null;
-
-document.addEventListener('click', function(e) {
-  const btn = e.target.closest('.map-tap');
-  if (!btn) return;
-  const idx = parseInt(btn.dataset.secIndex) - 1;
-  if (!currentBook) return;
-  openMapModal(currentBook.handbook.sections[idx]);
-});
 
 const SURF_COLORS = { a:'#48bb78', g:'#ed8936', u:'#e53e3e', k:'#a0aec0' };
 
-function openMapModal(sec) {
-  const modal = document.getElementById('map-modal');
-  modal.classList.add('open');
-  document.getElementById('map-close').onclick = function() {
-    modal.classList.remove('open');
-    if (window._leafMap) { window._leafMap.remove(); window._leafMap = null; }
-    if (window._elevMarker) { window._elevMarker = null; }
-  };
-
-  const map = L.map('map-leaflet');
-  window._leafMap = map;
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
-  }).addTo(map);
-
-  // Draw colored track segments
-  if (sec.track_points && sec.track_points.length > 1) {
-    const pts = sec.track_points;
-    let seg = [pts[0]], segColor = SURF_COLORS[pts[0].s] || '#a0aec0';
-    for (let i = 1; i < pts.length; i++) {
-      const c = SURF_COLORS[pts[i].s] || '#a0aec0';
-      if (c === segColor) {
-        seg.push(pts[i]);
-      } else {
-        L.polyline(seg.map(p=>[p.la,p.lo]), {color:segColor, weight:5, opacity:.9}).addTo(map);
-        seg = [pts[i-1], pts[i]]; segColor = c;
-      }
-    }
-    L.polyline(seg.map(p=>[p.la,p.lo]), {color:segColor, weight:5, opacity:.9}).addTo(map);
-    map.fitBounds(L.latLngBounds(pts.map(p=>[p.la,p.lo])));
-  } else {
-    map.setView([sec.start_lat, sec.start_lon], 13);
+function initSectionMaps() {
+  // Destroy any existing maps
+  if (window._secMaps) {
+    Object.values(window._secMaps).forEach(function(m) { try { m.remove(); } catch(e){} });
   }
+  window._secMaps = {};
 
-  // Start / end markers
-  L.circleMarker([sec.start_lat, sec.start_lon],
-    {radius:8, color:'white', fillColor:'#276749', fillOpacity:1, weight:2})
-    .bindPopup('<b>Start</b><br>' + escHtml(sec.start_name)).addTo(map);
-  L.circleMarker([sec.end_lat, sec.end_lon],
-    {radius:8, color:'white', fillColor:'#c05621', fillOpacity:1, weight:2})
-    .bindPopup('<b>End</b><br>' + escHtml(sec.end_name)).addTo(map);
+  currentBook.handbook.sections.forEach(function(sec) {
+    const el = document.getElementById('map-' + sec.index);
+    if (!el) return;
 
-  // POI markers
-  (sec.waypoints || []).forEach(function(wp) {
-    const icon = POI_ICON[wp.category] || '\\uD83D\\uDCCC';
-    L.marker([wp.lat, wp.lon], {
-      icon: L.divIcon({html:'<span style="font-size:16px;line-height:1">'+icon+'</span>', className:'', iconAnchor:[8,8]})
-    }).bindPopup(escHtml(wp.name || wp.category)).addTo(map);
+    const map = L.map(el, { zoomControl: true, scrollWheelZoom: false });
+    window._secMaps[sec.index] = map;
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 19
+    }).addTo(map);
+
+    // Colored track
+    if (sec.track_points && sec.track_points.length > 1) {
+      const pts = sec.track_points;
+      let seg = [pts[0]], segColor = SURF_COLORS[pts[0].s] || '#a0aec0';
+      for (let i = 1; i < pts.length; i++) {
+        const c = SURF_COLORS[pts[i].s] || '#a0aec0';
+        if (c === segColor) { seg.push(pts[i]); }
+        else {
+          L.polyline(seg.map(function(p){return [p.la,p.lo];}), {color:segColor,weight:4,opacity:.9}).addTo(map);
+          seg = [pts[i-1], pts[i]]; segColor = c;
+        }
+      }
+      L.polyline(seg.map(function(p){return [p.la,p.lo];}), {color:segColor,weight:4,opacity:.9}).addTo(map);
+      map.fitBounds(L.latLngBounds(pts.map(function(p){return [p.la,p.lo];})));
+    } else {
+      map.setView([sec.start_lat, sec.start_lon], 13);
+    }
+
+    // Start / end markers
+    L.circleMarker([sec.start_lat, sec.start_lon],
+      {radius:7,color:'white',fillColor:'#276749',fillOpacity:1,weight:2})
+      .bindPopup('<b>Start</b><br>' + escHtml(sec.start_name)).addTo(map);
+    L.circleMarker([sec.end_lat, sec.end_lon],
+      {radius:7,color:'white',fillColor:'#c05621',fillOpacity:1,weight:2})
+      .bindPopup('<b>End</b><br>' + escHtml(sec.end_name)).addTo(map);
+
+    // POI markers
+    (sec.waypoints || []).forEach(function(wp) {
+      const icon = POI_ICON[wp.category] || '📌';
+      L.marker([wp.lat, wp.lon], {
+        icon: L.divIcon({html:'<span style="font-size:14px;line-height:1">'+icon+'</span>', className:'', iconAnchor:[7,7]})
+      }).bindPopup(escHtml(wp.name || wp.category)).addTo(map);
+    });
+
+    // Turn markers
+    (sec.notable_turns || []).forEach(function(t) {
+      L.circleMarker([t.lat, t.lon],
+        {radius:5,color:'#2b6cb0',fillColor:'white',fillOpacity:1,weight:2})
+        .bindPopup(escHtml((t.direction||'')+' '+(t.bearing_change||'')+'\u00b0')).addTo(map);
+    });
   });
 
-  // Turn markers
-  (sec.notable_turns || []).forEach(function(t) {
-    L.circleMarker([t.lat, t.lon],
-      {radius:6, color:'#2b6cb0', fillColor:'white', fillOpacity:1, weight:2})
-      .bindPopup(escHtml((t.direction||'') + ' ' + (t.bearing_change||'') + '\\u00b0')).addTo(map);
-  });
+  // Draw elevation canvases (needs maps already set up for hover)
+  drawElevationCanvases();
 }
 
 // ── Elevation canvas ─────────────────────────────────────────────────────────
@@ -1112,13 +1093,11 @@ function attachElevationHover(canvas) {
     const eRange = canvas._maxE - canvas._minE || 1;
     const xPos = pad.l + (best.d / maxD) * (W - pad.l - canvas._pad.r);
     const yPos = pad.t + (1 - (best.e - canvas._minE) / eRange) * (H - pad.t - pad.b);
-    // Vertical line
     ctx.save();
     ctx.beginPath(); ctx.strokeStyle = 'rgba(45,55,72,.45)'; ctx.lineWidth = 1;
     ctx.setLineDash([3,3]);
     ctx.moveTo(xPos, pad.t); ctx.lineTo(xPos, H - pad.b); ctx.stroke();
     ctx.setLineDash([]);
-    // Dot
     ctx.beginPath(); ctx.arc(xPos, yPos, 5, 0, Math.PI * 2);
     ctx.fillStyle = '#3182ce'; ctx.fill();
     ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
@@ -1126,34 +1105,21 @@ function attachElevationHover(canvas) {
 
     showElevTooltip(canvas, xPos, yPos, best.d, best.e);
 
-    // Move dot on Leaflet map if open
-    if (window._leafMap && canvas._sec && canvas._sec.track_points) {
-      const tp = canvas._sec.track_points;
-      const ti = Math.min(Math.round(best.d / maxD * (tp.length - 1)), tp.length - 1);
-      const pt = tp[ti];
-      if (!window._elevMarker) {
-        window._elevMarker = L.circleMarker([pt.la, pt.lo],
-          {radius:7, color:'#2b6cb0', fillColor:'white', fillOpacity:1, weight:2})
-          .addTo(window._leafMap);
-      } else {
-        window._elevMarker.setLatLng([pt.la, pt.lo]);
+    // Move dot on this section's embedded Leaflet map
+    if (canvas._sec && canvas._sec.track_points) {
+      const secMap = window._secMaps && window._secMaps[canvas._sec.index];
+      if (secMap) {
+        const tp = canvas._sec.track_points;
+        const ti = Math.min(Math.round(best.d / maxD * (tp.length - 1)), tp.length - 1);
+        const pt = tp[ti];
+        if (!canvas._elevMarker) {
+          canvas._elevMarker = L.circleMarker([pt.la, pt.lo],
+            {radius:7, color:'#2b6cb0', fillColor:'white', fillOpacity:1, weight:2})
+            .addTo(secMap);
+        } else {
+          canvas._elevMarker.setLatLng([pt.la, pt.lo]);
+        }
       }
-    }
-
-    // Move dot overlaid on the map PNG (when Leaflet not open)
-    const dot = document.getElementById('mhd-' + canvas._sec.index);
-    if (dot && !window._leafMap && canvas._sec.track_points) {
-      const tp = canvas._sec.track_points;
-      const ti = Math.min(Math.round(best.d / maxD * (tp.length - 1)), tp.length - 1);
-      const pt = tp[ti];
-      const sec = canvas._sec;
-      const latRange = sec.start_lat - sec.end_lat || 0.001;
-      const lonRange = sec.end_lon - sec.start_lon || 0.001;
-      const px = ((pt.lo - sec.start_lon) / lonRange) * 100;
-      const py = ((sec.start_lat - pt.la) / latRange) * 100;
-      dot.style.left = Math.max(0, Math.min(100, px)) + '%';
-      dot.style.top  = Math.max(0, Math.min(100, py)) + '%';
-      dot.style.display = 'block';
     }
   }
 
@@ -1163,12 +1129,11 @@ function attachElevationHover(canvas) {
   }, {passive: false});
   canvas.addEventListener('mouseleave', function() {
     hideElevTooltip();
-    if (window._elevMarker && window._leafMap) {
-      window._leafMap.removeLayer(window._elevMarker);
-      window._elevMarker = null;
+    if (canvas._elevMarker) {
+      const secMap = window._secMaps && window._secMaps[canvas._sec && canvas._sec.index];
+      if (secMap) secMap.removeLayer(canvas._elevMarker);
+      canvas._elevMarker = null;
     }
-    const dot = document.getElementById('mhd-' + (canvas._sec && canvas._sec.index));
-    if (dot) dot.style.display = 'none';
     drawElevation(canvas, canvas._sec);
   });
 }
@@ -1188,6 +1153,13 @@ function goTo(n) {
     slider.style.transform = 'translateX(-' + (current * 100) + '%)';
     const slide = slider.children[current];
     if (slide) slide.scrollTop = 0;
+    // Invalidate Leaflet map size after slide transition
+    setTimeout(function() {
+      const sec = currentBook && currentBook.handbook.sections[n];
+      if (sec && window._secMaps && window._secMaps[sec.index]) {
+        window._secMaps[sec.index].invalidateSize();
+      }
+    }, 400);
   }
   updateUI();
 }
