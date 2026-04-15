@@ -707,12 +707,12 @@ def fetch_surface_ways(sec_points, corridor_m=150):
         resp.raise_for_status()
         ways = [el for el in resp.json().get("elements", []) if el.get("type") == "way"]
         print(f"    → {len(ways)} ways")
+        _surface_cache[bbox] = ways
+        _save_surface_cache()
     except Exception as exc:
         print(f"    Surface Overpass warning: {exc}")
         ways = []
 
-    _surface_cache[bbox] = ways
-    _save_surface_cache()
     return ways
 
 def find_named_boundary(points, dists, target_km, snap_km=3.0):
