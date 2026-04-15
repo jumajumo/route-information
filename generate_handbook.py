@@ -18,6 +18,7 @@ import math
 import os
 import sys
 import time
+import zipfile
 
 # Ensure log output appears immediately even when stdout is piped/captured
 sys.stdout.reconfigure(line_buffering=True)
@@ -833,7 +834,69 @@ def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR
     write_html(handbook, output_dir, html_path)
     print(f"Self-contained HTML written: {html_path}")
 
+    rb_path = write_routebook(handbook, output_dir)
+    print(f"Routebook written:      {rb_path}")
+
     return handbook
+
+
+# ---------------------------------------------------------------------------
+# .jumroutebook output  (ZIP with manifest + data + assets)
+# ---------------------------------------------------------------------------
+
+def write_routebook(handbook, output_dir):
+    """
+    Pack the handbook into a self-contained .jumroutebook file.
+
+    ZIP layout:
+      manifest.json          — format identifier + summary metadata
+      handbook.json          — full route data (sections, POIs, turns)
+      assets/
+        section_01/map.png
+        section_01/elevation.png
+        section_02/...
+    """
+    import datetime
+
+    title = handbook.get("source_file", "route").rsplit(".", 1)[0]
+    # Sanitise for filename
+    safe = "".join(c if c.isalnum() or c in "-_ " else "_" for c in title).strip()
+    rb_path = os.path.join(output_dir, f"{safe}.jumroutebook")
+
+    manifest = {
+        "format":    "jumroutebook",
+        "version":   "1.0",
+        "generator": "gpx-handbook-generator",
+        "title":     handbook.get("source_file", ""),
+        "total_km":  handbook.get("total_km", 0),
+        "sections":  len(handbook.get("sections", [])),
+        "created":   datetime.date.today().isoformat(),
+    }
+
+    with zipfile.ZipFile(rb_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        # manifest
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+
+        # handbook data — strip map_png / elevation_png paths (assets are in ZIP)
+        import copy
+        hb_export = copy.deepcopy(handbook)
+        for sec in hb_export.get("sections", []):
+            sec.pop("map_png", None)
+            sec.pop("elevation_png", None)
+        zf.writestr("handbook.json", json.dumps(hb_export, indent=2, ensure_ascii=False))
+
+        # assets
+        for sec in handbook.get("sections", []):
+            idx = sec["index"]
+            folder = f"assets/section_{idx:02d}"
+            for key, arc_name in [("map_png", "map.png"), ("elevation_png", "elevation.png")]:
+                rel = sec.get(key)
+                if rel:
+                    abs_path = os.path.join(output_dir, rel)
+                    if os.path.exists(abs_path):
+                        zf.write(abs_path, f"{folder}/{arc_name}")
+
+    return rb_path
 
 
 # ---------------------------------------------------------------------------
@@ -1552,6 +1615,8 @@ if __name__ == "__main__":
         html_path = os.path.join(args.output_dir, "handbook_selfcontained.html")
         write_html(handbook, args.output_dir, html_path)
         print(f"HTML regenerated: {html_path}")
+        rb_path = write_routebook(handbook, args.output_dir)
+        print(f"Routebook written: {rb_path}")
     else:
         if not args.gpx:
             parser.error("gpx argument is required unless --regen-html is used")
