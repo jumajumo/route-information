@@ -163,7 +163,7 @@ html, body {
   display: flex; flex-direction: column; overflow: hidden;
   border-right: 1px solid #e2e8f0;
 }
-@media (max-width: 767px) {
+@media (max-width: 959px) {
   #nav-drawer {
     width: min(300px, 88vw);
     transform: translateX(-100%); transition: transform .28s cubic-bezier(.4,0,.2,1);
@@ -171,7 +171,7 @@ html, body {
   }
   #nav-drawer.open { transform: translateX(0); }
 }
-@media (min-width: 768px) {
+@media (min-width: 960px) {
   #nav-overlay { display: none !important; }
   #nav-drawer { transform: none; transition: transform .3s cubic-bezier(.4,0,.2,1); box-shadow: none; }
   #burger { display: none; }
@@ -181,7 +181,7 @@ html, body {
   #viewport { left: 280px; }
   #dots { left: 280px; }
 }
-@media (min-width: 768px) {
+@media (min-width: 960px) {
   body.sidebar-hidden #nav-drawer { transform: translateX(-100%); }
   body.sidebar-hidden #topbar { left: 0; }
   body.sidebar-hidden #viewport { left: 0; }
@@ -261,13 +261,44 @@ html, body {
 @media (max-width: 600px) { .imgs { grid-template-columns: 1fr; } }
 
 /* ── Embedded section Leaflet map ── */
+.sec-map-wrap { position: relative; min-height: 220px; height: 100%; }
+@media (max-width: 600px) { .sec-map-wrap { min-height: 200px; } }
 .sec-map {
   border-radius: 10px; overflow: hidden;
   box-shadow: 0 1px 4px rgba(0,0,0,.1);
-  min-height: 220px; height: 100%;
+  width: 100%; height: 100%; min-height: inherit;
   background: #e8edf2;
 }
-@media (max-width: 600px) { .sec-map { min-height: 200px; } }
+.map-expand-btn {
+  position: absolute; bottom: 10px; right: 10px; z-index: 500;
+  background: rgba(255,255,255,.88); border: none; border-radius: 6px;
+  width: 30px; height: 30px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 14px; line-height: 1;
+  transition: background .15s;
+}
+.map-expand-btn:hover { background: rgba(255,255,255,1); }
+/* ── Fullscreen map modal ── */
+#map-modal {
+  display: none; position: fixed; inset: 0; z-index: 400;
+  background: rgba(0,0,0,.35); backdrop-filter: blur(3px);
+}
+#map-modal.open { display: block; }
+#map-modal-inner {
+  position: absolute;
+  inset: max(32px, env(safe-area-inset-top)) 32px max(32px, env(safe-area-inset-bottom)) 32px;
+  border-radius: 18px; overflow: hidden;
+  box-shadow: 0 12px 48px rgba(0,0,0,.5);
+}
+#map-modal-leaflet { width: 100%; height: 100%; }
+#map-modal-close {
+  position: absolute; top: 12px; right: 12px; z-index: 410;
+  background: rgba(255,255,255,.88); border: none; border-radius: 50%;
+  width: 34px; height: 34px; cursor: pointer; font-size: 1rem;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,.25); transition: background .15s;
+}
+#map-modal-close:hover { background: white; }
 
 /* ── Surface / road type stats bars ── */
 .stats-bars { margin-bottom: 1rem; }
@@ -478,6 +509,14 @@ h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700;
 <!-- Elevation tooltip -->
 <div id="elev-tooltip"></div>
 
+<!-- Fullscreen map modal -->
+<div id="map-modal">
+  <div id="map-modal-inner">
+    <div id="map-modal-leaflet"></div>
+    <button id="map-modal-close" aria-label="Close map">&#x2715;</button>
+  </div>
+</div>
+
 <script>
 /*!
 
@@ -665,7 +704,7 @@ function escHtml(s) {
 // ── Route viewer ────────────────────────────────────────────────────────────
 var current = 0;
 var total = 0;
-var isSidebar = window.innerWidth >= 768;
+var isSidebar = window.innerWidth >= 960;
 var isDesktop  = window.innerWidth >= 960;
 var TOPBAR_H   = 52;
 var titles     = [];
@@ -786,7 +825,10 @@ function renderSection(sec, assets) {
   const mapSrc  = assets[mapKey]  || null;
   const elevSrc = assets[elevKey] || null;
 
-  const mapTag  = '<div class="sec-map" id="map-' + sec.index + '"></div>';
+  const mapTag  = '<div class="sec-map-wrap">' +
+    '<div class="sec-map" id="map-' + sec.index + '"></div>' +
+    '<button class="map-expand-btn" data-sec-index="' + sec.index + '" title="Fullscreen map" aria-label="Fullscreen map">⛶</button>' +
+    '</div>';
   const elevTag = (sec.elevation_profile && sec.elevation_profile.length)
     ? '<canvas class="elev-canvas" id="elev-' + sec.index + '" data-sec-index="' + sec.index + '" style="max-width:100%;border-radius:10px;height:160px;" width="400" height="160"></canvas>'
     : '<p><em>Elevation unavailable</em></p>';
@@ -928,14 +970,6 @@ function initSectionMaps() {
       {radius:7,color:'white',fillColor:'#c05621',fillOpacity:1,weight:2})
       .bindPopup('<b>End</b><br>' + escHtml(sec.end_name)).addTo(map);
 
-    // POI markers
-    (sec.waypoints || []).forEach(function(wp) {
-      const icon = POI_ICON[wp.category] || '📌';
-      L.marker([wp.lat, wp.lon], {
-        icon: L.divIcon({html:'<span style="font-size:14px;line-height:1">'+icon+'</span>', className:'', iconAnchor:[7,7]})
-      }).bindPopup(escHtml(wp.name || wp.category)).addTo(map);
-    });
-
     // Turn markers
     (sec.notable_turns || []).forEach(function(t) {
       L.circleMarker([t.lat, t.lon],
@@ -946,9 +980,76 @@ function initSectionMaps() {
 
   // Draw elevation canvases (needs maps already set up for hover)
   drawElevationCanvases();
+
+  // Fullscreen map button handler
+  document.querySelectorAll('.map-expand-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.secIndex);
+      const sec = currentBook.handbook.sections.find(function(s) { return s.index === idx; });
+      if (sec) openMapModal(sec);
+    });
+  });
 }
 
-// ── Elevation canvas ─────────────────────────────────────────────────────────
+// ── Fullscreen map modal ─────────────────────────────────────────────────────
+function openMapModal(sec) {
+  const modal = document.getElementById('map-modal');
+  const container = document.getElementById('map-modal-leaflet');
+  modal.classList.add('open');
+
+  // Destroy previous modal map if any
+  if (window._modalMap) { window._modalMap.remove(); window._modalMap = null; }
+  container.innerHTML = '';
+
+  const map = L.map(container, { zoomControl: true, scrollWheelZoom: true });
+  window._modalMap = map;
+
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>', maxZoom: 19
+  }).addTo(map);
+
+  const SURF_COLORS = { a:'#48bb78', g:'#ed8936', u:'#e53e3e', k:'#a0aec0' };
+  if (sec.track_points && sec.track_points.length > 1) {
+    const pts = sec.track_points;
+    let seg = [pts[0]], segColor = SURF_COLORS[pts[0].s] || '#a0aec0';
+    for (let i = 1; i < pts.length; i++) {
+      const c = SURF_COLORS[pts[i].s] || '#a0aec0';
+      if (c === segColor) { seg.push(pts[i]); }
+      else {
+        L.polyline(seg.map(function(p){return [p.la,p.lo];}), {color:segColor,weight:4,opacity:.9}).addTo(map);
+        seg = [pts[i-1], pts[i]]; segColor = c;
+      }
+    }
+    L.polyline(seg.map(function(p){return [p.la,p.lo];}), {color:segColor,weight:4,opacity:.9}).addTo(map);
+    map.fitBounds(L.latLngBounds(pts.map(function(p){return [p.la,p.lo];})));
+  } else {
+    map.setView([sec.start_lat, sec.start_lon], 13);
+  }
+
+  L.circleMarker([sec.start_lat, sec.start_lon],
+    {radius:7,color:'white',fillColor:'#276749',fillOpacity:1,weight:2})
+    .bindPopup('<b>Start</b><br>' + escHtml(sec.start_name)).addTo(map);
+  L.circleMarker([sec.end_lat, sec.end_lon],
+    {radius:7,color:'white',fillColor:'#c05621',fillOpacity:1,weight:2})
+    .bindPopup('<b>End</b><br>' + escHtml(sec.end_name)).addTo(map);
+
+  (sec.notable_turns || []).forEach(function(t) {
+    L.circleMarker([t.lat, t.lon],
+      {radius:5,color:'#2b6cb0',fillColor:'white',fillOpacity:1,weight:2})
+      .bindPopup(escHtml((t.direction||'') + ' ' + (t.bearing_change||'') + '\u00b0')).addTo(map);
+  });
+
+  document.getElementById('map-modal-close').onclick = closeMapModal;
+  modal.addEventListener('click', function onBg(e) {
+    if (e.target === modal) { closeMapModal(); modal.removeEventListener('click', onBg); }
+  });
+}
+
+function closeMapModal() {
+  document.getElementById('map-modal').classList.remove('open');
+  if (window._modalMap) { window._modalMap.remove(); window._modalMap = null; }
+}
 function drawElevationCanvases() {
   document.querySelectorAll('.elev-canvas').forEach(function(canvas) {
     const idx = parseInt(canvas.dataset.secIndex) - 1;
@@ -1188,15 +1289,18 @@ document.addEventListener('keydown', e => {
   if (document.getElementById('screen-route').classList.contains('hidden')) return;
   if (e.key === 'ArrowRight') goTo(current+1);
   if (e.key === 'ArrowLeft')  goTo(current-1);
-  if (e.key === 'Escape') showLibrary();
+  if (e.key === 'Escape') {
+    if (document.getElementById('map-modal').classList.contains('open')) { closeMapModal(); }
+    else { showLibrary(); }
+  }
 });
 
 // ── Resize ───────────────────────────────────────────────────────────────────
 window.addEventListener('resize', () => {
-  isSidebar = window.innerWidth >= 768;
+  isSidebar = window.innerWidth >= 960;
   isDesktop  = window.innerWidth >= 960;
   TOPBAR_H   = document.getElementById('topbar').getBoundingClientRect().height || 52;
-  if (!isSidebar) document.body.classList.remove('sidebar-hidden');
+  if (!isSidebar) { document.body.classList.remove('sidebar-hidden'); closeNav(); }
   const slider = document.getElementById('slider');
   if (!isDesktop) slider.style.transform = 'translateX(-' + (current*100) + '%)';
   else slider.style.transform = '';
