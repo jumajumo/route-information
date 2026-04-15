@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JumRouteBook</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: #f7f8fa;
+    color: #2d3748;
+    min-height: 100vh;
+  }
+
+  header {
+    background: #2b6cb0;
+    color: white;
+    padding: 2rem 1.5rem 1.5rem;
+  }
+  header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -.01em; }
+  header p  { margin-top: .4rem; font-size: .95rem; opacity: .85; }
+
+  .viewer-link {
+    display: inline-flex; align-items: center; gap: .4rem;
+    margin-top: 1rem;
+    background: rgba(255,255,255,.15);
+    border: 1px solid rgba(255,255,255,.35);
+    color: white; text-decoration: none;
+    padding: .45rem .9rem; border-radius: 8px;
+    font-size: .9rem; font-weight: 500;
+    transition: background .15s;
+  }
+  .viewer-link:hover { background: rgba(255,255,255,.25); }
+
+  main {
+    max-width: 680px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+  }
+
+  h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #718096;
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    margin-bottom: 1rem;
+  }
+
+  .card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.08);
+    padding: 1.25rem 1.25rem 1rem;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: .6rem;
+  }
+
+  .card-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+  }
+
+  .card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+  }
+  .badge {
+    background: #edf2f7;
+    color: #4a5568;
+    font-size: .78rem;
+    padding: .2rem .55rem;
+    border-radius: 20px;
+  }
+
+  .card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem;
+    margin-top: .2rem;
+  }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .45rem .85rem;
+    border-radius: 8px;
+    font-size: .875rem;
+    font-weight: 500;
+    text-decoration: none;
+    cursor: pointer;
+    border: none;
+    transition: background .15s, opacity .15s;
+  }
+  .btn-primary {
+    background: #2b6cb0; color: white;
+  }
+  .btn-primary:hover { background: #2c5282; }
+
+  .btn-secondary {
+    background: #edf2f7; color: #2d3748;
+  }
+  .btn-secondary:hover { background: #e2e8f0; }
+
+  .btn-copy {
+    background: #edf2f7; color: #2d3748;
+  }
+  .btn-copy:hover { background: #e2e8f0; }
+  .btn-copy.copied { background: #c6f6d5; color: #276749; }
+
+  footer {
+    text-align: center;
+    color: #a0aec0;
+    font-size: .8rem;
+    padding: 2rem 1rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🚴 JumRouteBook</h1>
+  <p>Cycling route handbooks — interactive maps, elevation profiles, and POIs.</p>
+  <a class="viewer-link" href="viewer.html">▶ Open Viewer</a>
+</header>
+
+<main>
+  <h2>Available Routes</h2>
+
+  <div class="card">
+    <div class="card-title">Gardasee via Claudia Augusta</div>
+    <div class="card-meta">
+      <span class="badge">🗺 24 sections</span>
+      <span class="badge">📏 480 km</span>
+      <span class="badge">📦 8.0 MB</span>
+    </div>
+    <div class="card-actions">
+      <a class="btn btn-primary" href="handbook/Gardasee via Claudia Augusta.jumroutebook" download>⬇ Download</a>
+      <button class="btn btn-copy" data-url="https://jumajumo.github.io/route-information/handbook/Gardasee%20via%20Claudia%20Augusta.jumroutebook" onclick="copyUrl(this)">⎘ Copy link</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Sample Route</div>
+    <div class="card-meta">
+      <span class="badge">🗺 5 sections</span>
+      <span class="badge">📏 50 km</span>
+      <span class="badge">📦 1.4 MB</span>
+    </div>
+    <div class="card-actions">
+      <a class="btn btn-primary" href="handbook/sample.jumroutebook" download>⬇ Download</a>
+      <button class="btn btn-copy" data-url="https://jumajumo.github.io/route-information/handbook/sample.jumroutebook" onclick="copyUrl(this)">⎘ Copy link</button>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Load a .jumroutebook in the viewer — from disk or by pasting a URL.
+</footer>
+
+<script>
+function copyUrl(btn) {
+  var url = btn.getAttribute('data-url');
+  navigator.clipboard.writeText(url).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = '✓ Copied';
+    btn.classList.add('copied');
+    setTimeout(function() {
+      btn.textContent = orig;
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+</script>
+</body>
+</html>
