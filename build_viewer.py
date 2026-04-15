@@ -488,12 +488,11 @@ html, body {
   transition: background .15s; color: #333; font-weight: bold;
 }
 .map-expand-btn {
-  position: absolute; bottom: 10px; right: 10px; top: auto; left: auto;
-  font-size: 14px; z-index: 1000;
+  position: absolute; bottom: 10px; right: 10px; z-index: 1000;
+  font-size: 14px;
   -webkit-transform: translateZ(0); transform: translateZ(0);
 }
 .map-zoom-btn:hover, .map-expand-btn:hover { background: rgba(255,255,255,1); }
-/* Remove the old Leaflet zoom control override — we disabled it entirely */
 /* ── Fullscreen map modal ── */
 #map-modal {
   display: none; position: fixed; inset: 0; z-index: 400;
@@ -951,8 +950,8 @@ function renderSection(sec, assets) {
     '<div class="map-btns">' +
       '<button class="map-zoom-btn" data-sec-index="' + sec.index + '" data-zoom="+1" aria-label="Zoom in">+</button>' +
       '<button class="map-zoom-btn" data-sec-index="' + sec.index + '" data-zoom="-1" aria-label="Zoom out">−</button>' +
-      '<button class="map-expand-btn" data-sec-index="' + sec.index + '" title="Fullscreen map" aria-label="Fullscreen map">⛶</button>' +
     '</div>' +
+    '<button class="map-expand-btn" data-sec-index="' + sec.index + '" title="Fullscreen map" aria-label="Fullscreen map">⛶</button>' +
     '</div>';
   const elevTag = (sec.elevation_profile && sec.elevation_profile.length)
     ? '<canvas class="elev-canvas" id="elev-' + sec.index + '" data-sec-index="' + sec.index + '" width="400" height="220"></canvas>'
