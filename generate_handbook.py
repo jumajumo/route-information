@@ -41,8 +41,6 @@ OUTPUT_DIR = "handbook"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 NOMINATIM_HEADERS = {"User-Agent": "gpx-handbook-generator/1.0"}
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
-KARTAVIEW_URL = "https://api.openstreetcam.org/1.0/list/nearby-photos/"
-KARTAVIEW_BASE = "https://openstreetcam.org/"
 
 # POI categories to query from Overpass — cycling-relevant
 POI_FILTERS = [
@@ -159,12 +157,6 @@ def init_cache(output_dir):
             _surface_cache = json.load(f)
         print(f"  Loaded {len(_surface_cache)} cached surface entries")
 
-    kv_path = os.path.join(_cache_dir, "kartaview.json")
-    if os.path.exists(kv_path):
-        with open(kv_path, encoding="utf-8") as f:
-            _kartaview_cache = json.load(f)
-        print(f"  Loaded {len(_kartaview_cache)} cached KartaView entries")
-
     wm_path = os.path.join(_cache_dir, "wikimedia.json")
     if os.path.exists(wm_path):
         with open(wm_path, encoding="utf-8") as f:
@@ -195,76 +187,13 @@ def _save_surface_cache():
     with open(os.path.join(_cache_dir, "surface.json"), "w", encoding="utf-8") as f:
         json.dump(_surface_cache, f, ensure_ascii=False)
 
-_kartaview_cache = {}
 _photo_embed_cache = {}  # url -> "data:image/jpeg;base64,..."
-
-def _save_kartaview_cache():
-    if _cache_dir is None:
-        return
-    with open(os.path.join(_cache_dir, "kartaview.json"), "w", encoding="utf-8") as f:
-        json.dump(_kartaview_cache, f, ensure_ascii=False)
 
 def _save_photo_embed_cache():
     if _cache_dir is None:
         return
     with open(os.path.join(_cache_dir, "photo_embed.json"), "w", encoding="utf-8") as f:
         json.dump(_photo_embed_cache, f, ensure_ascii=False)
-
-def fetch_kartaview_photo(lat, lon, radius=50):
-    """
-    Return the closest KartaView photo within `radius` metres of (lat, lon).
-    Downloads and base64-embeds the thumbnail immediately — KartaView URLs expire.
-    Returns dict with thumb_b64, full_url, heading, date — or None if no coverage.
-    Disk-cached by rounded coordinate key.
-    """
-    key = f"{round(lat,4)},{round(lon,4)}"
-    if key in _kartaview_cache:
-        return _kartaview_cache[key]
-
-    result = None
-    try:
-        resp = requests.post(
-            KARTAVIEW_URL,
-            data={"lat": lat, "lng": lon, "radius": radius, "ipp": 1, "page": 1},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        items = resp.json().get("currentPageItems", [])
-        if items:
-            p = items[0]
-            thumb_url = KARTAVIEW_BASE + p["lth_name"]
-            full_url  = KARTAVIEW_BASE + p["name"]
-            # Download thumbnail immediately — URLs are temporary
-            try:
-                img_resp = requests.get(thumb_url, timeout=10, allow_redirects=True,
-                                        headers={"User-Agent": "gpx-handbook-generator/1.0"})
-                img_resp.raise_for_status()
-                # Validate it's actually an image by checking magic bytes
-                content = img_resp.content
-                if not (content[:2] == b'\xff\xd8' or        # JPEG
-                        content[:8] == b'\x89PNG\r\n\x1a\n' or  # PNG
-                        content[:6] in (b'GIF87a', b'GIF89a') or  # GIF
-                        content[:4] == b'RIFF'):              # WebP
-                    print(f"    KartaView: response is not an image (got {content[:20]!r}), skipping")
-                    raise ValueError("Not an image")
-                ct = img_resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
-                if not ct.startswith("image/"):
-                    ct = "image/jpeg"
-                thumb_b64 = f"data:{ct};base64," + base64.b64encode(content).decode()
-                result = {
-                    "thumb_b64": thumb_b64,
-                    "full_url":  full_url,
-                    "heading":   p.get("heading", ""),
-                    "date":      p.get("shot_date", "")[:10] if p.get("shot_date") else "",
-                }
-            except Exception as e:
-                print(f"    KartaView: thumbnail download failed: {e}")
-    except Exception as exc:
-        print(f"    KartaView warning: {exc}")
-
-    _kartaview_cache[key] = result
-    _save_kartaview_cache()
-    return result
 
 
 WIKIMEDIA_API = "https://en.wikipedia.org/w/api.php"
@@ -347,13 +276,10 @@ def fetch_wikimedia_photo(lat, lon, radius=1000):
 
 
 def fetch_photo(lat, lon):
-    """Try KartaView first, fall back to Wikimedia Commons, then OSM static map thumbnail."""
-    photo = fetch_kartaview_photo(lat, lon, radius=500)
-    if photo is None:
-        print(f"      No KartaView — trying Wikimedia Commons...")
-        photo = fetch_wikimedia_photo(lat, lon, radius=1000)
-        if photo:
-            print(f"      → Found: {photo['title'][:50]}")
+    """Try Wikimedia Commons, fall back to OSM static map thumbnail."""
+    photo = fetch_wikimedia_photo(lat, lon, radius=1000)
+    if photo:
+        print(f"      → Found: {photo['title'][:50]}")
     if photo is None:
         print(f"      No street photo — generating OSM map thumbnail...")
         photo = render_osm_thumbnail(lat, lon)
@@ -368,7 +294,7 @@ def render_osm_thumbnail(lat, lon, width=220, height=148, zoom=15):
     """
     import math
     key = f"osm_{round(lat,4)}_{round(lon,4)}_{zoom}"
-    cached = _kartaview_cache.get(key)  # reuse general in-memory cache
+    cached = _wikimedia_cache.get(key)  # reuse wikimedia in-memory cache for OSM tiles
     if cached:
         return cached
 
@@ -439,8 +365,8 @@ def render_osm_thumbnail(lat, lon, width=220, height=148, zoom=15):
         crop.save(buf, format="PNG", optimize=True)
         b64 = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
         result = {"thumb_b64": b64, "full_url": maps_url, "source": "osm_map", "date": ""}
-        _kartaview_cache[key] = result
-        _save_kartaview_cache()
+        _wikimedia_cache[key] = result
+        _save_wikimedia_cache()
         return result
 
     except Exception as e:
