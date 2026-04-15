@@ -1570,6 +1570,13 @@ window.addEventListener('resize', () => {
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 renderLibrary();
+
+// Auto-load archive from ?load= query parameter
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var loadUrl = params.get('load');
+  if (loadUrl) _loadUrl(loadUrl);
+})();
 """
 
 if __name__ == '__main__':
