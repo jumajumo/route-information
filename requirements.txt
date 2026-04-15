@@ -1,0 +1,6 @@
+gpxpy
+srtm.py
+matplotlib
+staticmap
+requests
+Pillow
