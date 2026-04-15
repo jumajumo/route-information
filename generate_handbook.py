@@ -239,10 +239,18 @@ def fetch_kartaview_photo(lat, lon, radius=50):
                 img_resp = requests.get(thumb_url, timeout=10, allow_redirects=True,
                                         headers={"User-Agent": "gpx-handbook-generator/1.0"})
                 img_resp.raise_for_status()
+                # Validate it's actually an image by checking magic bytes
+                content = img_resp.content
+                if not (content[:2] == b'\xff\xd8' or        # JPEG
+                        content[:8] == b'\x89PNG\r\n\x1a\n' or  # PNG
+                        content[:6] in (b'GIF87a', b'GIF89a') or  # GIF
+                        content[:4] == b'RIFF'):              # WebP
+                    print(f"    KartaView: response is not an image (got {content[:20]!r}), skipping")
+                    raise ValueError("Not an image")
                 ct = img_resp.headers.get("Content-Type", "image/jpeg").split(";")[0].strip()
                 if not ct.startswith("image/"):
                     ct = "image/jpeg"
-                thumb_b64 = f"data:{ct};base64," + base64.b64encode(img_resp.content).decode()
+                thumb_b64 = f"data:{ct};base64," + base64.b64encode(content).decode()
                 result = {
                     "thumb_b64": thumb_b64,
                     "full_url":  full_url,
