@@ -475,20 +475,25 @@ html, body {
   width: 100%; height: 100%; min-height: inherit;
   background: #e8edf2;
 }
-.map-expand-btn {
-  position: absolute; bottom: 10px; right: 10px; z-index: 1000;
+.map-btns {
+  position: absolute; top: 10px; left: 10px; z-index: 1000;
+  display: flex; flex-direction: column; gap: 2px;
+  -webkit-transform: translateZ(0); transform: translateZ(0);
+}
+.map-zoom-btn, .map-expand-btn {
   background: rgba(255,255,255,.88); border: none; border-radius: 6px;
   width: 30px; height: 30px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 14px; line-height: 1;
-  transition: background .15s;
-  /* Ensure visibility above Leaflet's stacking contexts on iOS */
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
+  box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 18px; line-height: 1;
+  transition: background .15s; color: #333; font-weight: bold;
 }
-.map-expand-btn:hover { background: rgba(255,255,255,1); }
-/* Keep Leaflet zoom control below our button */
-.sec-map .leaflet-top { z-index: 900 !important; }
+.map-expand-btn {
+  position: absolute; bottom: 10px; right: 10px; top: auto; left: auto;
+  font-size: 14px; z-index: 1000;
+  -webkit-transform: translateZ(0); transform: translateZ(0);
+}
+.map-zoom-btn:hover, .map-expand-btn:hover { background: rgba(255,255,255,1); }
+/* Remove the old Leaflet zoom control override — we disabled it entirely */
 /* ── Fullscreen map modal ── */
 #map-modal {
   display: none; position: fixed; inset: 0; z-index: 400;
@@ -943,7 +948,11 @@ function renderSection(sec, assets) {
 
   const mapTag  = '<div class="sec-map-wrap">' +
     '<div class="sec-map" id="map-' + sec.index + '"></div>' +
-    '<button class="map-expand-btn" data-sec-index="' + sec.index + '" title="Fullscreen map" aria-label="Fullscreen map">⛶</button>' +
+    '<div class="map-btns">' +
+      '<button class="map-zoom-btn" data-sec-index="' + sec.index + '" data-zoom="+1" aria-label="Zoom in">+</button>' +
+      '<button class="map-zoom-btn" data-sec-index="' + sec.index + '" data-zoom="-1" aria-label="Zoom out">−</button>' +
+      '<button class="map-expand-btn" data-sec-index="' + sec.index + '" title="Fullscreen map" aria-label="Fullscreen map">⛶</button>' +
+    '</div>' +
     '</div>';
   const elevTag = (sec.elevation_profile && sec.elevation_profile.length)
     ? '<canvas class="elev-canvas" id="elev-' + sec.index + '" data-sec-index="' + sec.index + '" width="400" height="220"></canvas>'
@@ -1053,7 +1062,7 @@ function initSectionMaps() {
     const el = document.getElementById('map-' + sec.index);
     if (!el) return;
 
-    const map = L.map(el, { zoomControl: true, scrollWheelZoom: false });
+    const map = L.map(el, { zoomControl: false, scrollWheelZoom: false });
     window._secMaps[sec.index] = map;
 
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -1104,6 +1113,17 @@ function initSectionMaps() {
       const idx = parseInt(btn.dataset.secIndex);
       const sec = currentBook.handbook.sections.find(function(s) { return s.index === idx; });
       if (sec) openMapModal(sec);
+    });
+  });
+
+  // Zoom button handler
+  document.querySelectorAll('.map-zoom-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.secIndex);
+      const delta = parseInt(btn.dataset.zoom);
+      const map = window._secMaps && window._secMaps[idx];
+      if (map) map.zoomIn ? (delta > 0 ? map.zoomIn() : map.zoomOut()) : null;
     });
   });
 }
