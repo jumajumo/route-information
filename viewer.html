@@ -412,9 +412,11 @@ h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700;
 
 /* ── Elevation canvas ── */
 .elev-canvas {
-  max-width: 100%; border-radius: 10px; display: block;
+  width: 100%; height: 100%; min-height: 220px; display: block;
+  border-radius: 10px;
   box-shadow: 0 1px 4px rgba(0,0,0,.1); cursor: crosshair;
 }
+@media (max-width: 600px) { .elev-canvas { min-height: 200px; } }
 
 /* ── Elevation tooltip ── */
 #elev-tooltip {
@@ -830,7 +832,7 @@ function renderSection(sec, assets) {
     '<button class="map-expand-btn" data-sec-index="' + sec.index + '" title="Fullscreen map" aria-label="Fullscreen map">⛶</button>' +
     '</div>';
   const elevTag = (sec.elevation_profile && sec.elevation_profile.length)
-    ? '<canvas class="elev-canvas" id="elev-' + sec.index + '" data-sec-index="' + sec.index + '" style="max-width:100%;border-radius:10px;height:160px;" width="400" height="160"></canvas>'
+    ? '<canvas class="elev-canvas" id="elev-' + sec.index + '" data-sec-index="' + sec.index + '" width="400" height="220"></canvas>'
     : '<p><em>Elevation unavailable</em></p>';
 
   // Turns
@@ -1051,28 +1053,40 @@ function closeMapModal() {
   if (window._modalMap) { window._modalMap.remove(); window._modalMap = null; }
 }
 function drawElevationCanvases() {
+  // Compute global elevation range across all sections for comparable Y axis
+  var globalMinE = Infinity, globalMaxE = -Infinity;
+  currentBook.handbook.sections.forEach(function(sec) {
+    if (!sec.elevation_profile) return;
+    sec.elevation_profile.forEach(function(p) {
+      if (p.e < globalMinE) globalMinE = p.e;
+      if (p.e > globalMaxE) globalMaxE = p.e;
+    });
+  });
+  if (!isFinite(globalMinE)) { globalMinE = 0; globalMaxE = 1000; }
+
   document.querySelectorAll('.elev-canvas').forEach(function(canvas) {
     const idx = parseInt(canvas.dataset.secIndex) - 1;
     const sec = currentBook && currentBook.handbook.sections[idx];
     if (!sec) return;
-    drawElevation(canvas, sec);
-    attachElevationHover(canvas);
+    drawElevation(canvas, sec, globalMinE, globalMaxE);
+    attachElevationHover(canvas, globalMinE, globalMaxE);
   });
 }
 
-function drawElevation(canvas, sec) {
+function drawElevation(canvas, sec, globalMinE, globalMaxE) {
   const prof = sec.elevation_profile;
   if (!prof || !prof.length) return;
   const W = canvas.offsetWidth || 400;
-  const H = canvas.offsetHeight || 160;
+  const H = canvas.offsetHeight || 220;
   const dpr = window.devicePixelRatio || 1;
   canvas.width  = W * dpr;
   canvas.height = H * dpr;
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
 
-  const minE = Math.min.apply(null, prof.map(function(p){return p.e;}));
-  const maxE = Math.max.apply(null, prof.map(function(p){return p.e;}));
+  // Use global range if provided, fall back to local for standalone redraws
+  const minE = (globalMinE !== undefined) ? globalMinE : Math.min.apply(null, prof.map(function(p){return p.e;}));
+  const maxE = (globalMaxE !== undefined) ? globalMaxE : Math.max.apply(null, prof.map(function(p){return p.e;}));
   const maxD = prof[prof.length-1].d;
   const pad = {l:44, r:10, t:14, b:30};
   const W2 = W - pad.l - pad.r;
@@ -1119,6 +1133,7 @@ function drawElevation(canvas, sec) {
   // Cache metadata on canvas element
   canvas._prof = prof; canvas._pad = pad; canvas._maxD = maxD;
   canvas._minE = minE; canvas._maxE = maxE; canvas._sec = sec;
+  canvas._globalMinE = minE; canvas._globalMaxE = maxE;
 }
 
 function showElevTooltip(canvas, xPos, yPos, d, e) {
@@ -1137,7 +1152,10 @@ function hideElevTooltip() {
   document.getElementById('elev-tooltip').classList.remove('show');
 }
 
-function attachElevationHover(canvas) {
+function attachElevationHover(canvas, globalMinE, globalMaxE) {
+  // Store global range on canvas so redraws triggered from hover use same scale
+  if (globalMinE !== undefined) { canvas._globalMinE = globalMinE; canvas._globalMaxE = globalMaxE; }
+
   function onMove(clientX, clientY) {
     const prof = canvas._prof, pad = canvas._pad, maxD = canvas._maxD;
     if (!prof) return;
@@ -1151,8 +1169,8 @@ function attachElevationHover(canvas) {
       const diff = Math.abs(prof[i].d - d);
       if (diff < bestDiff) { bestDiff = diff; best = prof[i]; }
     }
-    // Redraw canvas base, then crosshair overlay
-    drawElevation(canvas, canvas._sec);
+    // Redraw canvas base (with global scale), then crosshair overlay
+    drawElevation(canvas, canvas._sec, canvas._globalMinE, canvas._globalMaxE);
     const W = canvas.offsetWidth, H = canvas.offsetHeight;
     const dpr = window.devicePixelRatio || 1;
     const ctx = canvas.getContext('2d');
@@ -1201,7 +1219,7 @@ function attachElevationHover(canvas) {
       if (secMap) secMap.removeLayer(canvas._elevMarker);
       canvas._elevMarker = null;
     }
-    drawElevation(canvas, canvas._sec);
+    drawElevation(canvas, canvas._sec, canvas._globalMinE, canvas._globalMaxE);
   });
 }
 
