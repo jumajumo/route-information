@@ -1193,6 +1193,13 @@ function openMapModal(sec) {
       .bindPopup(escHtml((t.direction||'') + ' ' + (t.bearing_change||'') + '\\u00b0')).addTo(map);
   });
 
+  // GPS position marker (if already have a fix)
+  window._modalGpsMarker = null;
+  if (window._lastGpsLat != null) {
+    window._modalGpsMarker = L.marker([window._lastGpsLat, window._lastGpsLon],
+      { icon: getBikeIcon(), zIndexOffset: 500 }).addTo(map);
+  }
+
   document.getElementById('map-modal-close').onclick = closeMapModal;
   modal.addEventListener('click', function onBg(e) {
     if (e.target === modal) { closeMapModal(); modal.removeEventListener('click', onBg); }
@@ -1202,6 +1209,7 @@ function openMapModal(sec) {
 function closeMapModal() {
   document.getElementById('map-modal').classList.remove('open');
   if (window._modalMap) { window._modalMap.remove(); window._modalMap = null; }
+  window._modalGpsMarker = null;
 }
 function drawElevationCanvases() {
   // Compute global elevation range across all sections for comparable Y axis
@@ -1412,6 +1420,7 @@ function getBikeIcon() {
 }
 
 function updateGpsMarker(lat, lon) {
+  window._lastGpsLat = lat; window._lastGpsLon = lon;
   if (!currentBook || !window._secMaps) return;
   currentBook.handbook.sections.forEach(function(sec) {
     var map = window._secMaps[sec.index];
@@ -1422,6 +1431,14 @@ function updateGpsMarker(lat, lon) {
       window._gpsMarkers[sec.index] = L.marker([lat, lon], { icon: getBikeIcon(), zIndexOffset: 500 }).addTo(map);
     }
   });
+  // Update modal map marker if open
+  if (window._modalMap) {
+    if (window._modalGpsMarker) {
+      window._modalGpsMarker.setLatLng([lat, lon]);
+    } else {
+      window._modalGpsMarker = L.marker([lat, lon], { icon: getBikeIcon(), zIndexOffset: 500 }).addTo(window._modalMap);
+    }
+  }
 }
 
 // ── Navigation ──────────────────────────────────────────────────────────────
