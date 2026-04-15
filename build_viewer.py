@@ -911,13 +911,19 @@ function openRoute(record) {
 
   updateUI();
 
-  // Auto-navigate to nearest section based on current GPS position
+  // Start GPS watch: jump to nearest section on first fix, keep bicycle marker live
+  window._gpsMarkers = {};
+  window._gpsJumped = false;
   if (navigator.geolocation) {
-    navigator.geolocation.getCurrentPosition(
+    if (window._gpsWatchId != null) navigator.geolocation.clearWatch(window._gpsWatchId);
+    window._gpsWatchId = navigator.geolocation.watchPosition(
       function(pos) {
-        jumpToNearestSection(pos.coords.latitude, pos.coords.longitude);
+        var lat = pos.coords.latitude, lon = pos.coords.longitude;
+        if (!window._gpsJumped) { window._gpsJumped = true; jumpToNearestSection(lat, lon); }
+        updateGpsMarker(lat, lon);
       },
-      function() {} // silently ignore denial or timeout
+      function() {}, // silently ignore denial or timeout
+      { enableHighAccuracy: true, maximumAge: 10000 }
     );
   }
 }
@@ -1393,6 +1399,31 @@ function jumpToNearestSection(lat, lon) {
   if (bestIdx !== current) goTo(bestIdx);
 }
 
+var _bikeIcon = null;
+function getBikeIcon() {
+  if (!_bikeIcon) {
+    _bikeIcon = L.divIcon({
+      html: '<span style="font-size:22px;line-height:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.5))">\\uD83D\\uDEB4</span>',
+      className: '',
+      iconAnchor: [11, 18]
+    });
+  }
+  return _bikeIcon;
+}
+
+function updateGpsMarker(lat, lon) {
+  if (!currentBook || !window._secMaps) return;
+  currentBook.handbook.sections.forEach(function(sec) {
+    var map = window._secMaps[sec.index];
+    if (!map) return;
+    if (window._gpsMarkers[sec.index]) {
+      window._gpsMarkers[sec.index].setLatLng([lat, lon]);
+    } else {
+      window._gpsMarkers[sec.index] = L.marker([lat, lon], { icon: getBikeIcon(), zIndexOffset: 500 }).addTo(map);
+    }
+  });
+}
+
 // ── Navigation ──────────────────────────────────────────────────────────────
 function goTo(n) {
   if (n < 0 || n >= total) return;
@@ -1440,6 +1471,11 @@ function showLibrary() {
   document.getElementById('screen-library').classList.remove('hidden');
   // Reset desktop body scroll
   if (isDesktop) document.body.scrollTop = 0;
+  // Stop GPS watch to save battery
+  if (window._gpsWatchId != null) {
+    navigator.geolocation.clearWatch(window._gpsWatchId);
+    window._gpsWatchId = null;
+  }
 }
 
 function toggleNav() {
