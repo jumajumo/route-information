@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>JumRouteBook Viewer</title>
-<meta name="app-version" content="20260415195445">
+<meta name="app-version" content="20260415200101">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RouteBook">
@@ -267,7 +267,7 @@ html, body {
 @media (max-width: 600px) { .imgs { grid-template-columns: 1fr; } }
 
 /* ── Embedded section Leaflet map ── */
-.sec-map-wrap { position: relative; min-height: 220px; height: 100%; }
+.sec-map-wrap { position: relative; min-height: 220px; height: 100%; isolation: isolate; }
 @media (max-width: 600px) { .sec-map-wrap { min-height: 200px; } }
 .sec-map {
   border-radius: 10px; overflow: hidden;
@@ -276,14 +276,19 @@ html, body {
   background: #e8edf2;
 }
 .map-expand-btn {
-  position: absolute; bottom: 10px; right: 10px; z-index: 500;
+  position: absolute; bottom: 10px; right: 10px; z-index: 1000;
   background: rgba(255,255,255,.88); border: none; border-radius: 6px;
   width: 30px; height: 30px; cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 1px 4px rgba(0,0,0,.25); font-size: 14px; line-height: 1;
   transition: background .15s;
+  /* Ensure visibility above Leaflet's stacking contexts on iOS */
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
 }
 .map-expand-btn:hover { background: rgba(255,255,255,1); }
+/* Keep Leaflet zoom control below our button */
+.sec-map .leaflet-top { z-index: 900 !important; }
 /* ── Fullscreen map modal ── */
 #map-modal {
   display: none; position: fixed; inset: 0; z-index: 400;
@@ -1253,13 +1258,19 @@ function goTo(n) {
     slider.style.transform = 'translateX(-' + (current * 100) + '%)';
     const slide = slider.children[current];
     if (slide) slide.scrollTop = 0;
-    // Invalidate Leaflet map size after slide transition
+    // Invalidate Leaflet map size after slide transition (double-tap for iOS repaint)
     setTimeout(function() {
       const sec = currentBook && currentBook.handbook.sections[n];
       if (sec && window._secMaps && window._secMaps[sec.index]) {
         window._secMaps[sec.index].invalidateSize();
       }
     }, 400);
+    setTimeout(function() {
+      const sec = currentBook && currentBook.handbook.sections[n];
+      if (sec && window._secMaps && window._secMaps[sec.index]) {
+        window._secMaps[sec.index].invalidateSize();
+      }
+    }, 800);
   }
   updateUI();
 }
