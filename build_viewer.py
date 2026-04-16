@@ -129,6 +129,7 @@ if ('serviceWorker' in navigator) {{
 <div id="screen-library">
   <div id="lib-topbar">
     <span id="lib-title">RouteBook</span>
+    <button id="lib-check-btn" onclick="manualCheckUpdates()" title="Check for updates" style="display:none">↻ Check</button>
     <label id="open-btn" title="Open .jumroutebook file">
       <input type="file" id="file-input" accept=".jumroutebook" multiple>
       + Open file
@@ -305,6 +306,31 @@ html, body {
   display: flex; align-items: center;
 }
 .lib-item-del:active { color: #e53e3e; }
+.lib-item-refresh {
+  flex-shrink: 0; padding: .75rem .6rem; font-size: 1rem; color: #a0aec0;
+  background: none; border: none; cursor: pointer;
+  display: flex; align-items: center;
+}
+.lib-item-refresh:active { color: #2b6cb0; }
+.update-pill {
+  display: flex; align-items: center; gap: .45rem;
+  background: #fef3c7; color: #92400e;
+  font-size: .75rem; font-weight: 600;
+  padding: .2rem .55rem; border-radius: 20px;
+  margin-top: .3rem;
+}
+.update-pill button {
+  background: #d97706; color: white; border: none; border-radius: 6px;
+  padding: .15rem .45rem; font-size: .72rem; font-weight: 700; cursor: pointer;
+}
+.update-pill button:active { background: #b45309; }
+#lib-check-btn {
+  background: rgba(255,255,255,.18); color: white;
+  border: none; border-radius: 8px;
+  padding: .4rem .75rem; font-size: .85rem; font-weight: 600;
+  cursor: pointer; transition: background .15s; white-space: nowrap;
+}
+#lib-check-btn:active { background: rgba(255,255,255,.35); }
 
 /* ── Route screen: top bar ── */
 #screen-route { position: fixed; inset: 0; }
@@ -758,13 +784,13 @@ async function _loadUrl(url) {
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const buf = await resp.arrayBuffer();
     const name = url.split('/').pop() || 'route.jumroutebook';
-    await processZipBuffer(buf, name);
+    await processZipBuffer(buf, name, url);
   } catch(e) {
     showToast('Error: ' + e.message);
   } finally { hideLoading(); }
 }
 
-async function processZipBuffer(buf, filename) {
+async function processZipBuffer(buf, filename, sourceUrl) {
   const zip = await JSZip.loadAsync(buf);
 
   // Validate
@@ -790,7 +816,7 @@ async function processZipBuffer(buf, filename) {
 
   // Build record
   const id = manifest.title + '::' + manifest.created;
-  const record = { id, manifest, handbook, assets, filename, storedAt: Date.now() };
+  const record = { id, manifest, handbook, assets, filename, sourceUrl: sourceUrl || null, storedAt: Date.now() };
   await dbPut(record);
   showToast('✓ Loaded: ' + manifest.title);
   renderLibrary();
@@ -802,26 +828,36 @@ async function renderLibrary() {
   const list = document.getElementById('lib-list');
   const empty = document.getElementById('lib-empty');
   const urlBottom = document.getElementById('url-row-bottom');
+  const checkBtn = document.getElementById('lib-check-btn');
   list.innerHTML = '';
 
   if (routes.length === 0) {
     empty.style.display = '';
     urlBottom.style.display = 'none';
+    checkBtn.style.display = 'none';
     return;
   }
   empty.style.display = 'none';
   urlBottom.style.display = 'flex';
 
+  const hasUrlRoutes = routes.some(r => r.sourceUrl);
+  checkBtn.style.display = hasUrlRoutes ? '' : 'none';
+
   routes.sort((a, b) => b.storedAt - a.storedAt);
   for (const r of routes) {
     const m = r.manifest;
     const li = document.createElement('li');
+    li.setAttribute('data-id', r.id);
+    const refreshBtn = r.sourceUrl
+      ? '<button class="lib-item-refresh" title="Check for update" data-id="' + escHtml(r.id) + '">↻</button>'
+      : '';
     li.innerHTML =
       '<div class="lib-item-body">' +
         '<div class="lib-item-title">' + escHtml(m.title.replace(/\\.gpx$/i,'')) + '</div>' +
         '<div class="lib-item-meta">' + m.sections + ' sections &nbsp;·&nbsp; ' + m.total_km + ' km &nbsp;·&nbsp; ' + m.created + '</div>' +
       '</div>' +
       '<div class="lib-item-open">›</div>' +
+      refreshBtn +
       '<button class="lib-item-del" title="Remove" data-id="' + escHtml(r.id) + '">🗑</button>';
     li.querySelector('.lib-item-body').addEventListener('click', () => openRoute(r));
     li.querySelector('.lib-item-open').addEventListener('click', () => openRoute(r));
@@ -830,12 +866,72 @@ async function renderLibrary() {
       await dbDelete(r.id);
       renderLibrary();
     });
+    if (r.sourceUrl) {
+      li.querySelector('.lib-item-refresh').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const btn = e.currentTarget;
+        btn.textContent = '…';
+        await checkUpdate(r);
+        btn.textContent = '↻';
+      });
+    }
     list.appendChild(li);
   }
+
+  // Background update check for all URL-loaded routes
+  if (hasUrlRoutes) checkUpdatesForAll(routes);
 }
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Update checking ─────────────────────────────────────────────────────────
+
+async function manualCheckUpdates() {
+  const routes = await dbGetAll();
+  const btn = document.getElementById('lib-check-btn');
+  const orig = btn.textContent;
+  btn.textContent = '↻ …';
+  btn.disabled = true;
+  await checkUpdatesForAll(routes, 0);
+  btn.textContent = orig;
+  btn.disabled = false;
+}
+
+async function checkUpdatesForAll(routes, stagger) {
+  const urlRoutes = routes.filter(r => r.sourceUrl && r.manifest && r.manifest.content_hash);
+  for (let i = 0; i < urlRoutes.length; i++) {
+    if (i > 0) await new Promise(res => setTimeout(res, stagger != null ? stagger : 600));
+    checkUpdate(urlRoutes[i]); // fire-and-forget; markUpdateAvailable handles DOM update
+  }
+}
+
+async function checkUpdate(record) {
+  if (!record.sourceUrl || !record.manifest || !record.manifest.content_hash) return;
+  try {
+    const resp = await fetch(record.sourceUrl);
+    if (!resp.ok) return;
+    const zip = await JSZip.loadAsync(await resp.arrayBuffer());
+    const mf = JSON.parse(await zip.file('manifest.json').async('string'));
+    if (mf.content_hash && mf.content_hash !== record.manifest.content_hash) {
+      markUpdateAvailable(record.id, record.sourceUrl);
+    }
+  } catch(e) {} // silent on network/CORS errors
+}
+
+function markUpdateAvailable(id, sourceUrl) {
+  const li = document.querySelector('#lib-list li[data-id="' + CSS.escape(id) + '"]');
+  if (!li) return;
+  if (li.querySelector('.update-pill')) return; // already marked
+  const pill = document.createElement('div');
+  pill.className = 'update-pill';
+  pill.innerHTML = '⬆ Update available &nbsp;<button>↻ Update</button>';
+  pill.querySelector('button').addEventListener('click', (e) => {
+    e.stopPropagation();
+    _loadUrl(sourceUrl);
+  });
+  li.querySelector('.lib-item-body').appendChild(pill);
 }
 
 // ── Route viewer ────────────────────────────────────────────────────────────

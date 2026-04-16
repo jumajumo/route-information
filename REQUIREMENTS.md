@@ -171,10 +171,12 @@ ZIP archive (deflate compression) containing:
 
 | Path | Content |
 |------|---------|
-| `manifest.json` | Format identifier + summary metadata |
+| `manifest.json` | Format identifier + summary metadata, including `content_hash` |
 | `handbook.json` | Full route data (map_png/elevation_png paths stripped) |
 | `assets/section_NN/map.png` | Section map image |
 | `assets/section_NN/elevation.png` | Section elevation image |
+
+`manifest.json` fields include a `content_hash` key: SHA-256 hex digest of the `handbook.json` bytes as written into the ZIP. Used by the viewer to detect when a URL-loaded archive has been updated.
 
 ### 1.13 Caching
 
@@ -296,7 +298,10 @@ Each section displays:
 - All assets (PNG images) converted to base64 data URIs
 - Route stored in IndexedDB (`jumroutebook-store`, object store `routes`)
 - Unique ID: `"{title}::{creation_date}"`
+- Record includes `sourceUrl` (set when loaded via URL, `null` when loaded from file)
 - Multiple routes can be stored simultaneously
+
+**Update detection**: When the library screen is shown, the viewer silently re-fetches each URL-loaded archive in the background (staggered 600 ms apart). It compares the remote `manifest.content_hash` against the stored value. If they differ, a `⬆ Update available` pill with a `↻ Update` button appears on the route card. Tapping Update re-fetches and replaces the stored record. A `↻ Check` button in the library header triggers the same check manually. Routes loaded from file (no `sourceUrl`) are never checked.
 
 ### 3.8 PWA Features
 

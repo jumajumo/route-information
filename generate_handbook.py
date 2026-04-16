@@ -1130,16 +1130,20 @@ def write_routebook(handbook, output_dir, output_name=None):
     }
 
     with zipfile.ZipFile(rb_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        # manifest
-        zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
-
         # handbook data — strip map_png / elevation_png paths (assets are in ZIP)
-        import copy
+        import copy, hashlib
         hb_export = copy.deepcopy(handbook)
         for sec in hb_export.get("sections", []):
             sec.pop("map_png", None)
             sec.pop("elevation_png", None)
-        zf.writestr("handbook.json", json.dumps(hb_export, indent=2, ensure_ascii=False))
+        hb_bytes = json.dumps(hb_export, indent=2, ensure_ascii=False).encode("utf-8")
+
+        # compute hash of handbook content and embed in manifest
+        manifest["content_hash"] = hashlib.sha256(hb_bytes).hexdigest()
+
+        # manifest written after hash is known
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+        zf.writestr("handbook.json", hb_bytes.decode("utf-8"))
 
         # assets
         for sec in handbook.get("sections", []):
