@@ -567,11 +567,11 @@ def fetch_pois(sec_points, sec_dists, corridor_m=150):
             resp.raise_for_status()
             elements = resp.json().get("elements", [])
             print(f"    Overpass returned {len(elements)} raw elements")
+            _overpass_cache[bbox] = elements
+            _save_overpass_cache()
         except Exception as exc:
             print(f"    Overpass warning: {exc}")
             elements = []
-        _overpass_cache[bbox] = elements
-        _save_overpass_cache()
 
     # For each OSM node, find the closest track point and compute distance
     class _P:
@@ -598,6 +598,8 @@ def fetch_pois(sec_points, sec_dists, corridor_m=150):
             if tags.get(k) == v:
                 category = v
                 break
+        if category is None:
+            continue  # element doesn't match any POI filter; skip
         icon = POI_ICON.get(category, "📍")
 
         name = (tags.get("name")
