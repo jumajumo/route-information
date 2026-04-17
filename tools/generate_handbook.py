@@ -1092,6 +1092,8 @@ def generate(gpx_path, section_km=SECTION_KM, max_km=None, output_dir=OUTPUT_DIR
     rb_path = write_routebook(handbook, output_dir, cache_dir, output_name)
     print(f"Routebook written:      {rb_path}")
 
+    update_routes_index(handbook, rb_path, output_dir)
+
     return handbook
 
 
@@ -1158,6 +1160,34 @@ def write_routebook(handbook, output_dir, cache_dir=CACHE_BASE, output_name=None
                         zf.write(abs_path, f"{folder}/{arc_name}")
 
     return rb_path
+
+
+def update_routes_index(handbook, rb_path, output_dir):
+    """Upsert this route into output_dir/routes.json (keyed by filename)."""
+    index_path = os.path.join(output_dir, "routes.json")
+    try:
+        with open(index_path, encoding="utf-8") as f:
+            entries = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        entries = []
+
+    filename = os.path.basename(rb_path)
+    n_sections = len(handbook.get("sections", []))
+    total_km   = round(handbook.get("total_km", 0), 1)
+    title      = handbook.get("title") or filename.rsplit(".", 1)[0]
+    entry = {
+        "filename": filename,
+        "title":    title,
+        "meta":     f"{n_sections} sections · {total_km:.0f} km",
+    }
+
+    entries = [e for e in entries if e.get("filename") != filename]
+    entries.append(entry)
+    entries.sort(key=lambda e: e["title"])
+
+    with open(index_path, "w", encoding="utf-8") as f:
+        json.dump(entries, f, indent=2, ensure_ascii=False)
+    print(f"Routes index updated:   {index_path}")
 
 
 # ---------------------------------------------------------------------------

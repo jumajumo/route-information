@@ -221,10 +221,12 @@ curl -sL https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css -o
 |------|-------------|
 | `output/viewer/viewer.html` | ~300 KB self-contained interactive viewer |
 | `output/viewer/sw.js` | Service worker with embedded build timestamp |
+| `output/routebook/routes.json` | Route index: array of `{filename, title, meta}` entries, written/updated by `generate_handbook.py` after each successful handbook generation |
 
 ### 2.3 Build Process
 
 - Reads JSZip, Leaflet JS, and Leaflet CSS from `/tmp/`
+- Reads `output/routebook/routes.json` to populate the Available Routes catalogue; if missing, catalogue is empty
 - Generates a UTC build timestamp (`YYYYMMDDHHmmss`)
 - Inlines all assets into a single HTML file (no external dependencies)
 - Generates `sw.js` with the timestamp baked in as the cache version
@@ -239,6 +241,7 @@ curl -sL https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css -o
 - Per-route: title, section count, total km, stored date, delete button
 - **Add-route row** (above the route list): URL input + "Load URL" button + "+ Open file" button — always visible
 - Clicking a route opens the Route Screen
+- **Available Routes catalogue**: below the library list, shows all routes from `routes.json` (injected at build time by `build_viewer.py`). Each entry has a title, meta string (sections · km), and a load button. Already-installed routes show an "Installed" badge; routes with an available update show an "Update" button.
 
 ### 3.2 Route Screen
 

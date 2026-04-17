@@ -3,13 +3,15 @@
 Build viewer.html + sw.js — embeds JSZip, Leaflet, and all viewer logic into a single self-contained file.
 Run:  python3 build_viewer.py
 """
-import os, sys
+import json, os, sys
 from datetime import datetime, timezone
 
 JSZIP_PATH       = "/tmp/jszip.min.js"
 LEAFLET_JS_PATH  = "/tmp/leaflet.js"
 LEAFLET_CSS_PATH = "/tmp/leaflet.css"
 OUTPUT_DIR       = "output/viewer"
+ROUTES_INDEX     = "output/routebook/routes.json"
+ROUTES_BASE_URL  = "https://jumajumo.github.io/route-information/handbook/"
 
 def build_sw(build_ts):
     return f"""// RouteBook service worker — auto-generated, do not edit
@@ -85,7 +87,22 @@ def main():
     build_ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    html = build_viewer(jszip, leaflet_js, leaflet_css, build_ts)
+    try:
+        with open(ROUTES_INDEX, encoding="utf-8") as f:
+            route_entries = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        route_entries = []
+
+    catalogue = [
+        {
+            "title": e["title"],
+            "meta":  e["meta"],
+            "url":   ROUTES_BASE_URL + e["filename"].replace(" ", "%20"),
+        }
+        for e in route_entries
+    ]
+
+    html = build_viewer(jszip, leaflet_js, leaflet_css, build_ts, catalogue)
     out = os.path.join(OUTPUT_DIR, "viewer.html")
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
@@ -96,7 +113,14 @@ def main():
         f.write(sw)
     print(f"sw.js written (version {build_ts})")
 
-def build_viewer(jszip, leaflet_js, leaflet_css, build_ts):
+def build_viewer(jszip, leaflet_js, leaflet_css, build_ts, catalogue=None):
+    if catalogue is None:
+        catalogue = []
+    catalogue_json = json.dumps(catalogue, indent=2, ensure_ascii=False)
+    html = _build_viewer_template(jszip, leaflet_js, leaflet_css, build_ts)
+    return html.replace('__CATALOGUE_JSON__', catalogue_json)
+
+def _build_viewer_template(jszip, leaflet_js, leaflet_css, build_ts):
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -947,23 +971,7 @@ function escHtml(s) {
 
 // ── Available routes catalogue ───────────────────────────────────────────────
 
-const CATALOGUE = [
-  {
-    title: 'Gardasee via Claudia Augusta',
-    meta: '24 sections · 480 km',
-    url: 'https://jumajumo.github.io/route-information/handbook/Gardasee%20via%20Claudia%20Augusta.jumroutebook'
-  },
-  {
-    title: 'Federseerunde',
-    meta: '8 sections · 40 km',
-    url: 'https://jumajumo.github.io/route-information/handbook/Federseerunde.jumroutebook'
-  },
-  {
-    title: 'Sample Route',
-    meta: '5 sections · 50 km',
-    url: 'https://jumajumo.github.io/route-information/handbook/sample.jumroutebook'
-  }
-];
+const CATALOGUE = __CATALOGUE_JSON__;
 
 function renderCatalogue(routes) {
   const el = document.getElementById('catalogue');
