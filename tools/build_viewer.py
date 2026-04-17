@@ -12,7 +12,7 @@ LEAFLET_CSS_PATH = "/tmp/leaflet.css"
 OUTPUT_DIR       = "output/viewer"
 DEPLOY_DIR       = "."          # repo root, served by GitHub Pages
 ROUTES_INDEX     = "output/routebook/routes.json"
-ROUTES_BASE_URL  = "https://jumajumo.github.io/route-information/handbook/"
+ROUTES_BASE_URL  = "https://jumajumo.github.io/route-information/output/routebook/"
 
 def build_sw(build_ts):
     return f"""// RouteBook service worker — auto-generated, do not edit
