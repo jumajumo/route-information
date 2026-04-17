@@ -18,7 +18,8 @@ JumRouteBook is a two-part tool for cyclists:
 | GPX file | Track points + optional waypoints |
 | `--section-km` | Target section length in km (default: 10) |
 | `--max-km` | Truncate route to first N km (optional) |
-| `--output-dir` | Output directory (default: `handbook/`) |
+| `--output-dir` | Output directory (default: `output/routebook/`) |
+| `--cache-dir` | Cache directory (default: `cache/`) |
 | `--output-name` | Base name for output files |
 | `--title` | Human-readable route title |
 
@@ -26,11 +27,18 @@ JumRouteBook is a two-part tool for cyclists:
 
 | File | Description |
 |------|-------------|
-| `handbook/handbook.json` | Full route metadata and section data |
-| `handbook/handbook_selfcontained.html` | Single-file HTML with all images embedded as base64 |
-| `handbook/{name}.jumroutebook` | ZIP archive for use in the viewer |
-| `handbook/sections/section_NN/map.png` | Colored surface-type map (600×400 px) per section |
-| `handbook/sections/section_NN/elevation.png` | Elevation profile chart per section |
+| `output/routebook/handbook.json` | Full route metadata and section data |
+| `output/routebook/{name}.jumroutebook` | ZIP archive for use in the viewer |
+
+### 1.3 Cache
+
+| Path | Description |
+|------|-------------|
+| `cache/sections/section_NN/map.png` | Colored surface-type map (600×400 px) per section |
+| `cache/sections/section_NN/elevation.png` | Elevation profile chart per section |
+| `cache/overpass.json` | Cached Overpass API responses |
+| `cache/nominatim.json` | Cached Nominatim reverse geocoding responses |
+| `cache/tiles/` | Cached map tiles |
 
 ### 1.3 Section Splitting
 
@@ -211,8 +219,8 @@ curl -sL https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css -o
 
 | File | Description |
 |------|-------------|
-| `viewer.html` | ~300 KB self-contained interactive viewer |
-| `sw.js` | Service worker with embedded build timestamp |
+| `output/viewer/viewer.html` | ~300 KB self-contained interactive viewer |
+| `output/viewer/sw.js` | Service worker with embedded build timestamp |
 
 ### 2.3 Build Process
 
@@ -229,8 +237,7 @@ curl -sL https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css -o
 
 - Lists all routes stored in IndexedDB
 - Per-route: title, section count, total km, stored date, delete button
-- File input: open one or more `.jumroutebook` files from disk
-- URL input: load a `.jumroutebook` from a remote URL
+- **Add-route row** (above the route list): URL input + "Load URL" button + "+ Open file" button — always visible
 - Clicking a route opens the Route Screen
 
 ### 3.2 Route Screen
@@ -274,8 +281,15 @@ Each section displays:
 - Triggered by expand button on any section map
 - Covers viewport with 32 px inset on all sides (app visible behind)
 - Semi-transparent blurred backdrop (`rgba(0,0,0,.35)` + `backdrop-filter: blur(3px)`)
+- **Section summary banner** at the top of the modal (collapsible):
+  - Header row: section label (start → end), collapse toggle (▾/▸)
+  - Body row: distance, elevation gain, elevation loss, surface breakdown (emoji + %)
+  - Tap to collapse to header-only; tap again to expand; map resizes accordingly
 - Full Leaflet map with scroll-wheel zoom enabled
-- Same track, markers, and turn markers as embedded map
+- **Full route overlay**: all sections' track points drawn as a single orange (`#f6883a`) polyline (weight 3, opacity 0.6) underneath the section, for context when zooming out
+- Section track rendered on top with surface colors (green/orange/red)
+- Initial view fitted to the current section bounds; full route visible on zoom-out
+- Same start/end markers and turn markers as embedded map
 - Close via: ✕ button, backdrop click, or Escape key
 - Previous modal map instance destroyed before opening new one
 
@@ -373,8 +387,8 @@ Each section displays:
 
 ## 6. Deployment
 
-The viewer is deployed to GitHub Pages. `viewer.html` and `sw.js` are both committed to the repository root. On each build:
+The viewer is deployed to GitHub Pages. `output/viewer/viewer.html` and `output/viewer/sw.js` are built artifacts (gitignored). On each build:
 
-1. Run `python3 build_viewer.py` → produces `viewer.html` + `sw.js` with new timestamp
+1. Run `python3 tools/build_viewer.py` → produces `output/viewer/viewer.html` + `output/viewer/sw.js` with new timestamp
 2. Commit and push both files
 3. Installed PWA users receive the update silently on next launch (service worker detects version change)

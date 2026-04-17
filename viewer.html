@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>JumRouteBook Viewer</title>
-<meta name="app-version" content="20260416075730">
+<meta name="app-version" content="20260417061502">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="RouteBook">
@@ -45,13 +45,13 @@ html, body {
 }
 #lib-title { font-weight: 700; font-size: 1.1rem; }
 #open-btn {
-  background: rgba(255,255,255,.18); color: white;
+  background: #2b6cb0; color: white;
   border: none; border-radius: 8px;
-  padding: .4rem .9rem; font-size: .9rem; font-weight: 600;
+  padding: .5rem 1rem; font-size: .88rem; font-weight: 600;
   cursor: pointer; transition: background .15s;
   white-space: nowrap;
 }
-#open-btn:active { background: rgba(255,255,255,.35); }
+#open-btn:active { background: #2c5282; }
 #file-input { display: none; }
 
 #lib-body {
@@ -63,21 +63,21 @@ html, body {
 #lib-empty p { margin-bottom: .5rem; font-size: .95rem; }
 .lib-hint { font-size: .85rem; color: #a0aec0; }
 
-#url-row, #url-row-bottom {
+#url-row, #add-row {
   display: flex; gap: .5rem; margin-top: 1.25rem; max-width: 520px; margin-left: auto; margin-right: auto;
 }
-#url-row-bottom { margin-top: 1.5rem; }
+#add-row { margin-top: 0; margin-bottom: 1rem; padding: 0 1rem; max-width: 640px; }
 #url-input, #url-input2 {
   flex: 1; border: 1px solid #cbd5e0; border-radius: 8px;
   padding: .5rem .75rem; font-size: .88rem; color: #2d3748;
   background: white;
 }
-#url-row button, #url-row-bottom button {
+#url-row button, #add-row button {
   background: #2b6cb0; color: white; border: none; border-radius: 8px;
   padding: .5rem 1rem; font-size: .88rem; font-weight: 600; cursor: pointer;
   white-space: nowrap; transition: background .15s;
 }
-#url-row button:active, #url-row-bottom button:active { background: #2c5282; }
+#url-row button:active, #add-row button:active { background: #2c5282; }
 
 #lib-list { list-style: none; max-width: 640px; margin: 0 auto; }
 #lib-list li {
@@ -127,6 +127,36 @@ html, body {
   cursor: pointer; transition: background .15s; white-space: nowrap;
 }
 #lib-check-btn:active { background: rgba(255,255,255,.35); }
+
+/* ── Available routes catalogue ── */
+#catalogue {
+  max-width: 640px; margin: 0 auto 1.25rem;
+}
+#catalogue-heading {
+  font-size: .7rem; font-weight: 700; color: #718096;
+  text-transform: uppercase; letter-spacing: .07em;
+  margin-bottom: .6rem;
+}
+.cat-item {
+  background: white; border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,.07);
+  margin-bottom: .6rem; padding: .75rem 1rem;
+  display: flex; align-items: center; gap: .75rem;
+}
+.cat-item-body { flex: 1; min-width: 0; }
+.cat-item-title { font-weight: 700; font-size: .97rem; color: #1a365d; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cat-item-meta { font-size: .78rem; color: #718096; margin-top: 1px; }
+.cat-btn {
+  flex-shrink: 0; border: none; border-radius: 8px;
+  padding: .4rem .85rem; font-size: .82rem; font-weight: 700;
+  cursor: pointer; white-space: nowrap; transition: background .15s;
+}
+.cat-btn-install { background: #2b6cb0; color: white; }
+.cat-btn-install:active { background: #2c5282; }
+.cat-btn-update  { background: #d97706; color: white; }
+.cat-btn-update:active  { background: #b45309; }
+.cat-btn-open    { background: #edf2f7; color: #2b6cb0; }
+.cat-btn-open:active    { background: #e2e8f0; }
 
 /* ── Route screen: top bar ── */
 #screen-route { position: fixed; inset: 0; }
@@ -329,10 +359,29 @@ html, body {
   inset: max(32px, env(safe-area-inset-top)) 32px max(32px, env(safe-area-inset-bottom)) 32px;
   border-radius: 18px; overflow: hidden;
   box-shadow: 0 12px 48px rgba(0,0,0,.5);
+  display: flex; flex-direction: column;
 }
-#map-modal-leaflet { width: 100%; height: 100%; }
+#map-modal-leaflet { flex: 1; min-height: 0; }
+#map-modal-banner {
+  background: rgba(255,255,255,.96);
+  border-bottom: 1px solid #e2e8f0;
+  z-index: 410; flex-shrink: 0;
+}
+#map-modal-banner-main {
+  display: flex; align-items: center;
+  padding: .55rem .9rem;
+}
+#map-modal-banner-title {
+  font-weight: 700; font-size: .92rem; color: #2d3748; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+#map-modal-banner-body {
+  padding: .3rem .9rem .55rem; font-size: .82rem; color: #4a5568;
+  display: flex; flex-wrap: wrap; gap: .4rem .9rem;
+}
+#map-modal-banner-body .stat { white-space: nowrap; }
 #map-modal-close {
-  position: absolute; top: 12px; right: 12px; z-index: 410;
+  position: absolute; top: 12px; right: 12px; z-index: 420;
   background: rgba(255,255,255,.88); border: none; border-radius: 50%;
   width: 34px; height: 34px; cursor: pointer; font-size: 1rem;
   display: flex; align-items: center; justify-content: center;
@@ -485,27 +534,25 @@ h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700;
   <div id="lib-topbar">
     <span id="lib-title">RouteBook</span>
     <button id="lib-check-btn" onclick="manualCheckUpdates()" title="Check for updates" style="display:none">↻ Check</button>
-    <label id="open-btn" title="Open .jumroutebook file">
-      <input type="file" id="file-input" accept=".jumroutebook" multiple>
-      + Open file
-    </label>
   </div>
 
   <div id="lib-body">
     <div id="lib-empty">
       <div id="lib-empty-icon">🚴</div>
       <p>No routes loaded yet.</p>
-      <p class="lib-hint">Tap <strong>+ Open file</strong> to load a <code>.jumroutebook</code> file,<br>or paste a URL below.</p>
-      <div id="url-row">
-        <input id="url-input" type="url" placeholder="https://…  .jumroutebook URL">
-        <button id="url-load-btn" onclick="loadFromUrl()">Load</button>
-      </div>
+      <p class="lib-hint">Tap a route below, or load a <code>.jumroutebook</code> file.</p>
     </div>
-    <ul id="lib-list"></ul>
-    <div id="url-row-bottom">
+    <div id="catalogue"></div>
+    <div id="lib-list-header" class="hidden" style="max-width:640px;margin:0 auto .6rem;font-size:.7rem;font-weight:700;color:#718096;text-transform:uppercase;letter-spacing:.07em;">My Routes</div>
+    <div id="add-row">
       <input id="url-input2" type="url" placeholder="https://…  .jumroutebook URL">
       <button onclick="loadFromUrl2()">Load URL</button>
+      <label id="open-btn" title="Open .jumroutebook file">
+        <input type="file" id="file-input" accept=".jumroutebook" multiple>
+        + Open file
+      </label>
     </div>
+    <ul id="lib-list"></ul>
   </div>
 </div>
 
@@ -567,6 +614,14 @@ h4 { margin: .75rem 0 .4rem; color: #4a5568; font-size: .9rem; font-weight: 700;
 <!-- Fullscreen map modal -->
 <div id="map-modal">
   <div id="map-modal-inner">
+    <div id="map-modal-banner">
+      <div id="map-modal-banner-main">
+        <span id="map-modal-banner-title"></span>
+      </div>
+      <div id="map-modal-banner-body">
+        <span id="map-modal-banner-stats"></span>
+      </div>
+    </div>
     <div id="map-modal-leaflet"></div>
     <button id="map-modal-close" aria-label="Close map">&#x2715;</button>
   </div>
@@ -598,7 +653,7 @@ if ('serviceWorker' in navigator) {
       var banner = document.getElementById('update-banner');
       banner.textContent = '🔄 Update available (' + ts + ') — tap to reload';
       banner.style.display = 'block';
-      banner.onclick = function() { window.location.reload(); };
+      banner.onclick = function() { window.location.href = window.location.href.split('?')[0]; };
     }
   });
 }
@@ -733,18 +788,20 @@ async function renderLibrary() {
   const routes = await dbGetAll();
   const list = document.getElementById('lib-list');
   const empty = document.getElementById('lib-empty');
-  const urlBottom = document.getElementById('url-row-bottom');
   const checkBtn = document.getElementById('lib-check-btn');
+  const listHeader = document.getElementById('lib-list-header');
   list.innerHTML = '';
+
+  renderCatalogue(routes);
 
   if (routes.length === 0) {
     empty.style.display = '';
-    urlBottom.style.display = 'none';
     checkBtn.style.display = 'none';
+    listHeader.classList.add('hidden');
     return;
   }
   empty.style.display = 'none';
-  urlBottom.style.display = 'flex';
+  listHeader.classList.remove('hidden');
 
   const hasUrlRoutes = routes.some(r => r.sourceUrl);
   checkBtn.style.display = hasUrlRoutes ? '' : 'none';
@@ -790,6 +847,79 @@ async function renderLibrary() {
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Available routes catalogue ───────────────────────────────────────────────
+
+const CATALOGUE = [
+  {
+    title: 'Gardasee via Claudia Augusta',
+    meta: '24 sections · 480 km',
+    url: 'https://jumajumo.github.io/route-information/handbook/Gardasee%20via%20Claudia%20Augusta.jumroutebook'
+  },
+  {
+    title: 'Federseerunde',
+    meta: '8 sections · 40 km',
+    url: 'https://jumajumo.github.io/route-information/handbook/Federseerunde.jumroutebook'
+  },
+  {
+    title: 'Sample Route',
+    meta: '5 sections · 50 km',
+    url: 'https://jumajumo.github.io/route-information/handbook/sample.jumroutebook'
+  }
+];
+
+function renderCatalogue(routes) {
+  const el = document.getElementById('catalogue');
+  el.innerHTML = '<div id="catalogue-heading">Available Routes</div>';
+  for (const entry of CATALOGUE) {
+    const installed = routes.find(r => r.sourceUrl === entry.url);
+    const hasUpdate = installed && document.querySelector('#lib-list li[data-id="' + CSS.escape(installed.id) + '"] .update-pill');
+    const div = document.createElement('div');
+    div.className = 'cat-item';
+    div.innerHTML =
+      '<div class="cat-item-body">' +
+        '<div class="cat-item-title">' + escHtml(entry.title) + '</div>' +
+        '<div class="cat-item-meta">' + escHtml(entry.meta) + '</div>' +
+      '</div>';
+    if (!installed) {
+      const btn = document.createElement('button');
+      btn.className = 'cat-btn cat-btn-install';
+      btn.textContent = '+ Install';
+      btn.addEventListener('click', () => _loadUrl(entry.url));
+      div.appendChild(btn);
+    } else {
+      const openBtn = document.createElement('button');
+      openBtn.className = 'cat-btn cat-btn-open';
+      openBtn.textContent = '▶ Open';
+      openBtn.addEventListener('click', () => openRoute(installed));
+      div.appendChild(openBtn);
+      // Check for update asynchronously
+      checkCatalogueUpdate(entry, div);
+    }
+    el.appendChild(div);
+  }
+}
+
+async function checkCatalogueUpdate(entry, div) {
+  try {
+    const resp = await fetch(entry.url);
+    if (!resp.ok) return;
+    const zip = await JSZip.loadAsync(await resp.arrayBuffer());
+    const mf = JSON.parse(await zip.file('manifest.json').async('string'));
+    const routes = await dbGetAll();
+    const installed = routes.find(r => r.sourceUrl === entry.url);
+    if (!installed) return;
+    if (mf.content_hash && installed.manifest.content_hash && mf.content_hash !== installed.manifest.content_hash) {
+      // Insert update button before the open button
+      const updateBtn = document.createElement('button');
+      updateBtn.className = 'cat-btn cat-btn-update';
+      updateBtn.textContent = '↻ Update';
+      updateBtn.addEventListener('click', () => _loadUrl(entry.url));
+      const openBtn = div.querySelector('.cat-btn-open');
+      div.insertBefore(updateBtn, openBtn);
+    }
+  } catch(e) {} // silent on network/CORS errors
 }
 
 // ── Update checking ─────────────────────────────────────────────────────────
@@ -1168,6 +1298,24 @@ function openMapModal(sec) {
   const container = document.getElementById('map-modal-leaflet');
   modal.classList.add('open');
 
+  // Populate banner
+  const banner = document.getElementById('map-modal-banner');
+  document.getElementById('map-modal-banner-title').textContent = 'Sec ' + String(sec.index).padStart(2,'0') + ': ' + (sec.label || (sec.start_name + ' → ' + sec.end_name));
+  const ss = sec.surface_stats || {};
+  const surfParts = [
+    ss.asphalt  > 0 ? '🟢 ' + ss.asphalt  + '% asphalt'  : null,
+    ss.gravel   > 0 ? '🟠 ' + ss.gravel   + '% gravel'   : null,
+    ss.unpaved  > 0 ? '🔴 ' + ss.unpaved  + '% unpaved'  : null,
+  ].filter(Boolean).join('  ');
+  const kmRange = (sec.start_km != null && sec.end_km != null)
+    ? '<span class="stat">🗺 ' + Math.round(sec.start_km) + '–' + Math.round(sec.end_km) + ' km</span>' : '';
+  document.getElementById('map-modal-banner-stats').innerHTML =
+    '<span class="stat">📏 ' + sec.distance_km + ' km</span>' +
+    kmRange +
+    '<span class="stat">↑ ' + (sec.elevation_gain_m || 0) + ' m</span>' +
+    '<span class="stat">↓ ' + (sec.elevation_loss_m || 0) + ' m</span>' +
+    (surfParts ? '<span class="stat">' + surfParts + '</span>' : '');
+
   // Destroy previous modal map if any
   if (window._modalMap) { window._modalMap.remove(); window._modalMap = null; }
   container.innerHTML = '';
@@ -1180,6 +1328,18 @@ function openMapModal(sec) {
   }).addTo(map);
 
   const SURF_COLORS = { a:'#48bb78', g:'#ed8936', u:'#e53e3e', k:'#a0aec0' };
+
+  // Draw full route in neutral color underneath the section
+  if (currentBook && currentBook.handbook && currentBook.handbook.sections) {
+    const allPts = [];
+    currentBook.handbook.sections.forEach(function(s) {
+      if (s.track_points) s.track_points.forEach(function(p) { allPts.push([p.la, p.lo]); });
+    });
+    if (allPts.length > 1) {
+      L.polyline(allPts, {color:'#f6883a', weight:3, opacity:.6}).addTo(map);
+    }
+  }
+
   if (sec.track_points && sec.track_points.length > 1) {
     const pts = sec.track_points;
     let seg = [pts[0]], segColor = SURF_COLORS[pts[0].s] || '#a0aec0';
