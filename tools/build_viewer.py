@@ -10,6 +10,7 @@ JSZIP_PATH       = "/tmp/jszip.min.js"
 LEAFLET_JS_PATH  = "/tmp/leaflet.js"
 LEAFLET_CSS_PATH = "/tmp/leaflet.css"
 OUTPUT_DIR       = "output/viewer"
+DEPLOY_DIR       = "."          # repo root, served by GitHub Pages
 ROUTES_INDEX     = "output/routebook/routes.json"
 ROUTES_BASE_URL  = "https://jumajumo.github.io/route-information/handbook/"
 
@@ -103,14 +104,16 @@ def main():
     ]
 
     html = build_viewer(jszip, leaflet_js, leaflet_css, build_ts, catalogue)
-    out = os.path.join(OUTPUT_DIR, "viewer.html")
-    with open(out, "w", encoding="utf-8") as f:
-        f.write(html)
-    print(f"viewer.html written ({len(html)//1024} KB)")
-
     sw = build_sw(build_ts)
-    with open(os.path.join(OUTPUT_DIR, "sw.js"), "w", encoding="utf-8") as f:
-        f.write(sw)
+
+    for dest_dir in [OUTPUT_DIR, DEPLOY_DIR]:
+        os.makedirs(dest_dir, exist_ok=True)
+        with open(os.path.join(dest_dir, "viewer.html"), "w", encoding="utf-8") as f:
+            f.write(html)
+        with open(os.path.join(dest_dir, "sw.js"), "w", encoding="utf-8") as f:
+            f.write(sw)
+
+    print(f"viewer.html written ({len(html)//1024} KB)")
     print(f"sw.js written (version {build_ts})")
 
 def build_viewer(jszip, leaflet_js, leaflet_css, build_ts, catalogue=None):
