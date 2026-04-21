@@ -42,6 +42,7 @@ CACHE_BASE = "cache"
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 NOMINATIM_HEADERS = {"User-Agent": "gpx-handbook-generator/1.0"}
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_HEADERS = {"Accept": "*/*", "User-Agent": "gardasee-handbook/1.0"}
 
 # POI categories to query from Overpass — cycling-relevant
 POI_FILTERS = [
@@ -564,7 +565,7 @@ def fetch_pois(sec_points, sec_dists, corridor_m=150):
         query = f"[out:json][timeout:25];\n(\n  {union_parts}\n);\nout body;"
         print(f"    Querying Overpass API (bbox {bbox[:30]}...)...")
         try:
-            resp = requests.post(OVERPASS_URL, data={"data": query}, timeout=30)
+            resp = requests.post(OVERPASS_URL, data={"data": query}, timeout=30, headers=OVERPASS_HEADERS)
             resp.raise_for_status()
             elements = resp.json().get("elements", [])
             print(f"    Overpass returned {len(elements)} raw elements")
@@ -706,7 +707,7 @@ def fetch_surface_ways(sec_points, corridor_m=150):
     )
     print(f"    Fetching surface ways ({bbox[:35]}...)...")
     try:
-        resp = requests.post(OVERPASS_URL, data={"data": query}, timeout=35)
+        resp = requests.post(OVERPASS_URL, data={"data": query}, timeout=35, headers=OVERPASS_HEADERS)
         resp.raise_for_status()
         ways = [el for el in resp.json().get("elements", []) if el.get("type") == "way"]
         print(f"    → {len(ways)} ways")

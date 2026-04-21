@@ -1,5 +1,10 @@
 [
   {
+    "filename": "Bad-Buchau-Runde.jumroutebook",
+    "title": "Bad Buchau Runde",
+    "meta": "6 sections · 29 km"
+  },
+  {
     "filename": "Federseerunde.jumroutebook",
     "title": "Federseerunde",
     "meta": "8 sections · 40 km"
@@ -13,6 +18,11 @@
     "filename": "sample.jumroutebook",
     "title": "Sample Route",
     "meta": "5 sections · 50 km"
+  },
+  {
+    "filename": "Saulgau-Runde.jumroutebook",
+    "title": "Saulgau Runde von Otterswang",
+    "meta": "6 sections · 32 km"
   },
   {
     "filename": "Waldsee-Runde.jumroutebook",
